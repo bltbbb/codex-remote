@@ -20,7 +20,7 @@ final class RemotePairingTests: XCTestCase {
             XCTAssertEqual(request.httpMethod, "POST")
             XCTAssertEqual(request.value(forHTTPHeaderField: "Content-Type"), "application/json")
 
-            let body = try XCTUnwrap(request.httpBody)
+            let body = try XCTUnwrap(PairingURLProtocol.requestBody(for: request))
             let object = try XCTUnwrap(
                 JSONSerialization.jsonObject(with: body) as? [String: String]
             )
@@ -129,21 +129,28 @@ final class RemotePairingTests: XCTestCase {
         )
         defer { try? store.deleteToken() }
 
-        XCTAssertNil(try store.loadToken())
+        do {
+            XCTAssertNil(try store.loadToken())
 
-        try store.saveToken("token-one")
-        XCTAssertEqual(try store.loadToken(), "token-one")
+            try store.saveToken("token-one")
+            XCTAssertEqual(try store.loadToken(), "token-one")
 
-        try store.saveToken("token-two")
-        XCTAssertEqual(try store.loadToken(), "token-two")
+            try store.saveToken("token-two")
+            XCTAssertEqual(try store.loadToken(), "token-two")
 
-        try store.deleteToken()
-        XCTAssertNil(try store.loadToken())
+            try store.deleteToken()
+            XCTAssertNil(try store.loadToken())
+        } catch let error as RemoteCredentialStoreError {
+            if error == .keychainStatus(-34018) {
+                throw XCTSkip("iOS Simulator 没有 Keychain entitlement")
+            }
+            throw error
+        }
     }
     #endif
 }
 
-private final class PairingURLProtocol: URLProtocol {
+fileprivate final class PairingURLProtocol: URLProtocol {
     static var handler: ((URLRequest) throws -> (HTTPURLResponse, Data))?
 
     override class func canInit(with request: URLRequest) -> Bool {
@@ -174,4 +181,27 @@ private final class PairingURLProtocol: URLProtocol {
     }
 
     override func stopLoading() {}
+
+    fileprivate static func requestBody(for request: URLRequest) -> Data? {
+        if let body = request.httpBody {
+            return body
+        }
+        guard let stream = request.httpBodyStream else {
+            return nil
+        }
+
+        stream.open()
+        defer { stream.close() }
+
+        var result = Data()
+        var buffer = [UInt8](repeating: 0, count: 4 * 1024)
+        while stream.hasBytesAvailable {
+            let count = stream.read(&buffer, maxLength: buffer.count)
+            if count <= 0 {
+                break
+            }
+            result.append(buffer, count: count)
+        }
+        return result
+    }
 }
