@@ -350,15 +350,15 @@ public final class RemoteAppStore: RemoteAppStoreObservableObject {
         state = next
     }
 
-    private func receive(event: EventEnvelope) {
+    fileprivate func receive(event: EventEnvelope) {
         state = RemoteReducer.apply(event, to: state)
     }
 
-    private func receiveSequenceReset() {
+    fileprivate func receiveSequenceReset() {
         state = RemoteReducer.resetEventCursor(state)
     }
 
-    private func receiveConnectionChange(phase: ConnectionPhase, message: String) {
+    fileprivate func receiveConnectionChange(phase: ConnectionPhase, message: String) {
         var next = RemoteReducer.setConnection(state, phase: phase, message: message)
         if phase == .error {
             next.lastError = message
