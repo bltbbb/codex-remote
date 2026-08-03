@@ -197,7 +197,7 @@ public final class RemoteAppStore: RemoteAppStoreObservableObject {
 
     @discardableResult
     public func loadWorkspaces() async -> RemoteWorkspaceListResult? {
-        guard let result = await performRequest(.workspaceList) else {
+        guard let result = await performRequest(.workspaceList, params: .object([:])) else {
             allowedWorkspacePaths.removeAll()
             return nil
         }
@@ -206,7 +206,7 @@ public final class RemoteAppStore: RemoteAppStoreObservableObject {
             return nil
         }
 
-        allowedWorkspacePaths = Set(response.workspaces.map(\.path))
+        allowedWorkspacePaths = Set(response.workspaces.map { $0.path })
         return RemoteWorkspaceListResult(workspaces: response.workspaces)
     }
 
