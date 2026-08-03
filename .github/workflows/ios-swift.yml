@@ -120,6 +120,58 @@ jobs:
             -derivedDataPath ../../artifacts/xcode-derived-data \
             CODE_SIGNING_ALLOWED=NO
 
+      - name: 构建无签名 iOS IPA
+        shell: bash
+        working-directory: apps/ios
+        run: |
+          set -eo pipefail
+          xcodebuild build \
+            -scheme RemoteCodexApp \
+            -configuration Release \
+            -destination "generic/platform=iOS" \
+            -derivedDataPath ../../artifacts/xcode-device-derived-data \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY=""
+
+          app_path="../../artifacts/xcode-device-derived-data/Build/Products/Release-iphoneos/RemoteCodexApp.app"
+          test -d "$app_path"
+          executable="$(
+            /usr/libexec/PlistBuddy \
+              -c "Print :CFBundleExecutable" \
+              "$app_path/Info.plist"
+          )"
+          bundle_id="$(
+            /usr/libexec/PlistBuddy \
+              -c "Print :CFBundleIdentifier" \
+              "$app_path/Info.plist"
+          )"
+          test -n "$executable"
+          test -n "$bundle_id"
+          echo "Bundle ID：$bundle_id"
+          echo "可执行文件：$executable"
+          xcrun lipo -info "$app_path/$executable"
+
+          staging="../../artifacts/unsigned-ipa"
+          rm -rf "$staging"
+          mkdir -p "$staging/Payload"
+          cp -R "$app_path" "$staging/Payload/"
+          (
+            cd "$staging"
+            zip -qry RemoteCodexApp.ipa Payload
+            shasum -a 256 RemoteCodexApp.ipa > RemoteCodexApp.ipa.sha256
+          )
+
+      - name: 上传无签名 IPA
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: RemoteCodexApp-unsigned-ipa
+          path: |
+            artifacts/unsigned-ipa/RemoteCodexApp.ipa
+            artifacts/unsigned-ipa/RemoteCodexApp.ipa.sha256
+          if-no-files-found: error
+          retention-days: 14
+
       - name: 停止协议模拟器
         if: always()
         shell: bash
