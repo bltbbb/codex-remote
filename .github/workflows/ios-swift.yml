@@ -1,0 +1,79 @@
+name: 验证 iOS Swift
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - "apps/ios/**"
+      - "packages/protocol-mock/fixtures/**"
+      - ".github/workflows/ios-swift.yml"
+  pull_request:
+    paths:
+      - "apps/ios/**"
+      - "packages/protocol-mock/fixtures/**"
+      - ".github/workflows/ios-swift.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  build-and-test:
+    runs-on: macos-15
+    timeout-minutes: 30
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+
+      - name: 显示工具链
+        shell: bash
+        run: |
+          xcodebuild -version
+          swift --version
+          xcrun simctl list devices available | sed -n '1,120p'
+
+      - name: 列出 Swift Package schemes
+        shell: bash
+        working-directory: apps/ios
+        run: xcodebuild -list
+
+      - name: 编译 iOS App
+        shell: bash
+        working-directory: apps/ios
+        run: |
+          set -eo pipefail
+          xcodebuild build \
+            -scheme RemoteCodexApp \
+            -destination "generic/platform=iOS Simulator" \
+            -derivedDataPath ../../artifacts/xcode-derived-data \
+            CODE_SIGNING_ALLOWED=NO
+
+      - name: 编译 iOS XCTest
+        shell: bash
+        working-directory: apps/ios
+        run: |
+          set -eo pipefail
+          xcodebuild build-for-testing \
+            -scheme RemoteCodexCore \
+            -destination "generic/platform=iOS Simulator" \
+            -derivedDataPath ../../artifacts/xcode-derived-data \
+            CODE_SIGNING_ALLOWED=NO
+
+      - name: 运行 iOS XCTest
+        shell: bash
+        working-directory: apps/ios
+        run: |
+          set -eo pipefail
+          device="$(
+            xcrun simctl list devices available |
+            awk -F '[()]' '/iPhone/ && /Shutdown/ { gsub(/^[[:space:]]+|[[:space:]]+$/, "", $1); print $1; exit }'
+          )"
+          if [ -z "$device" ]; then
+            echo "::error::没有找到可用的 iPhone 模拟器"
+            exit 1
+          fi
+          echo "使用模拟器：$device"
+          xcodebuild test \
+            -scheme RemoteCodexCore \
+            -destination "platform=iOS Simulator,name=$device,OS=latest" \
+            -derivedDataPath ../../artifacts/xcode-derived-data \
+            CODE_SIGNING_ALLOWED=NO

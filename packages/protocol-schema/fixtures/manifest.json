@@ -1,0 +1,57 @@
+{
+  "manifestVersion": 1,
+  "protocolVersion": "1.0.0",
+  "schema": "../remote-protocol.schema.json",
+  "sourceRoot": "../../protocol-mock/fixtures",
+  "fixtures": [
+    {
+      "id": "thread-list.snapshot",
+      "file": "thread-list.snapshot.json",
+      "kind": "event",
+      "wireMethod": "thread.list.snapshot",
+      "description": "线程列表快照"
+    },
+    {
+      "id": "turn.plan.updated",
+      "file": "turn.plan.updated.json",
+      "kind": "event",
+      "wireMethod": "item.upsert",
+      "description": "计划 item.upsert"
+    },
+    {
+      "id": "tool.progress",
+      "file": "tool.progress.json",
+      "kind": "event",
+      "wireMethod": "item.delta",
+      "description": "工具输出增量"
+    },
+    {
+      "id": "turn.diff.updated",
+      "file": "turn.diff.updated.json",
+      "kind": "event",
+      "wireMethod": "turn.diff.updated",
+      "description": "回合聚合差异"
+    },
+    {
+      "id": "turn.attachment",
+      "file": "turn.attachment.json",
+      "kind": "request",
+      "wireMethod": "turn.start",
+      "description": "带附件的 turn.start 请求"
+    },
+    {
+      "id": "approval.requested",
+      "file": "approval.requested.json",
+      "kind": "event",
+      "wireMethod": "approval.requested",
+      "description": "审批请求"
+    },
+    {
+      "id": "turn.failed",
+      "file": "turn.failed.json",
+      "kind": "event",
+      "wireMethod": "turn.completed",
+      "description": "failed 状态的 turn.completed"
+    }
+  ]
+}

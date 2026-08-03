@@ -1,0 +1,20 @@
+{
+  "kind": "event",
+  "sequence": 43,
+  "eventId": "fixture-turn-failed",
+  "event": {
+    "method": "turn.completed",
+    "params": {
+      "threadId": "thread-fixture",
+      "turn": {
+        "id": "turn-fixture",
+        "status": "failed",
+        "itemIds": ["user-fixture", "command-fixture"],
+        "startedAt": 100,
+        "completedAt": 101,
+        "durationMs": 1000,
+        "error": "命令退出码为 1"
+      }
+    }
+  }
+}

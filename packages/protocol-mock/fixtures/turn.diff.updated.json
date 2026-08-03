@@ -1,0 +1,13 @@
+{
+  "kind": "event",
+  "sequence": 42,
+  "eventId": "fixture-turn-diff",
+  "event": {
+    "method": "turn.diff.updated",
+    "params": {
+      "threadId": "thread-fixture",
+      "turnId": "turn-fixture",
+      "diff": "diff --git a/src/app.ts b/src/app.ts\n--- a/src/app.ts\n+++ b/src/app.ts\n@@ -1,1 +1,2 @@\n const ready = true;\n+export default ready;\n"
+    }
+  }
+}

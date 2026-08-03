@@ -1,0 +1,21 @@
+node_modules/
+dist/
+artifacts/
+bin/
+obj/
+coverage/
+playwright-report/
+test-results/
+*.log
+.env
+.env.*
+!.env.example
+
+# 阶段勘探和本机构建产物
+work/
+
+# 编辑器与系统文件
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db

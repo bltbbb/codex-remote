@@ -1,0 +1,26 @@
+{
+  "kind": "event",
+  "sequence": 1,
+  "eventId": "fixture-thread-list",
+  "event": {
+    "method": "thread.list.snapshot",
+    "params": {
+      "threads": [
+        {
+          "id": "thread-fixture",
+          "sessionId": "session-fixture",
+          "title": "脱敏会话",
+          "preview": "验证远程协议",
+          "cwd": "E:\\workspace\\example",
+          "modelProvider": "example",
+          "createdAt": 1700000000,
+          "updatedAt": 1700000100,
+          "status": "idle",
+          "isPinned": false,
+          "source": "appServer"
+        }
+      ],
+      "nextCursor": null
+    }
+  }
+}

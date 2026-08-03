@@ -1,0 +1,23 @@
+{
+  "kind": "event",
+  "sequence": 2,
+  "eventId": "fixture-approval",
+  "event": {
+    "method": "approval.requested",
+    "params": {
+      "approval": {
+        "id": "approval-fixture",
+        "method": "item/commandExecution/requestApproval",
+        "threadId": "thread-fixture",
+        "turnId": "turn-fixture",
+        "itemId": "item-fixture",
+        "title": "批准命令执行",
+        "description": "脱敏审批示例",
+        "command": "pnpm test",
+        "cwd": "E:\\workspace\\example",
+        "availableDecisions": ["accept", "decline"],
+        "raw": {}
+      }
+    }
+  }
+}

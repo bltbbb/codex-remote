@@ -1,0 +1,19 @@
+{
+  "kind": "event",
+  "sequence": 45,
+  "eventId": "fixture-turn-plan",
+  "event": {
+    "method": "item.upsert",
+    "params": {
+      "threadId": "thread-fixture",
+      "turnId": "turn-fixture",
+      "item": {
+        "type": "plan",
+        "id": "plan-turn-fixture",
+        "turnId": "turn-fixture",
+        "status": "inProgress",
+        "text": "[{\"step\":\"检查\",\"status\":\"inProgress\"}]"
+      }
+    }
+  }
+}

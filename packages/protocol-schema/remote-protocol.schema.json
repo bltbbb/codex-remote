@@ -1,0 +1,719 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://codex-remote.local/protocol/v1/remote-protocol.schema.json",
+  "title": "Codex Remote Protocol v1",
+  "description": "Codex Remote 的 request、response 和 event 消息结构。已知 method 使用精确 params 契约；未知 method 仍允许任意 JSON params，以保持前向兼容。",
+  "x-protocol-version": "1.0.0",
+  "type": "object",
+  "oneOf": [
+    { "$ref": "#/$defs/clientRequest" },
+    { "$ref": "#/$defs/serverResponse" },
+    { "$ref": "#/$defs/eventEnvelope" }
+  ],
+  "$defs": {
+    "jsonValue": {
+      "description": "任意 JSON 值，用于保留未知字段和未知事件参数。",
+      "oneOf": [
+        { "type": "null" },
+        { "type": "string" },
+        { "type": "number" },
+        { "type": "boolean" },
+        { "type": "array", "items": { "$ref": "#/$defs/jsonValue" } },
+        {
+          "type": "object",
+          "additionalProperties": { "$ref": "#/$defs/jsonValue" }
+        }
+      ]
+    },
+    "objectParams": {
+      "type": "object",
+      "additionalProperties": { "$ref": "#/$defs/jsonValue" }
+    },
+    "clientRequest": {
+      "oneOf": [
+        { "$ref": "#/$defs/connectionInfoRequest" },
+        { "$ref": "#/$defs/workspaceListRequest" },
+        { "$ref": "#/$defs/threadListRequest" },
+        { "$ref": "#/$defs/threadReadRequest" },
+        { "$ref": "#/$defs/threadCreateRequest" },
+        { "$ref": "#/$defs/threadDeleteRequest" },
+        { "$ref": "#/$defs/threadResumeRequest" },
+        { "$ref": "#/$defs/turnStartRequest" },
+        { "$ref": "#/$defs/turnInterruptRequest" },
+        { "$ref": "#/$defs/approvalResolveRequest" },
+        { "$ref": "#/$defs/eventsResumeRequest" },
+        { "$ref": "#/$defs/eventsAckRequest" },
+        { "$ref": "#/$defs/pairingCompleteRequest" },
+        { "$ref": "#/$defs/deviceListRequest" },
+        { "$ref": "#/$defs/deviceRevokeRequest" },
+        { "$ref": "#/$defs/mockFaultConfigureRequest" },
+        { "$ref": "#/$defs/mockFaultReleaseRequest" },
+        { "$ref": "#/$defs/unknownClientRequest" }
+      ]
+    },
+    "clientRequestBase": {
+      "type": "object",
+      "required": ["kind", "id", "method", "params"],
+      "properties": {
+        "kind": { "const": "request" },
+        "id": { "type": "string", "minLength": 1 },
+        "method": { "type": "string", "minLength": 1 },
+        "params": { "$ref": "#/$defs/objectParams" }
+      },
+      "additionalProperties": true
+    },
+    "connectionInfoRequest": {
+      "allOf": [
+        { "$ref": "#/$defs/clientRequestBase" },
+        { "properties": { "method": { "const": "connection.info" }, "params": { "$ref": "#/$defs/objectParams" } } }
+      ]
+    },
+    "workspaceListRequest": {
+      "allOf": [
+        { "$ref": "#/$defs/clientRequestBase" },
+        { "properties": { "method": { "const": "workspace.list" }, "params": { "$ref": "#/$defs/objectParams" } } }
+      ]
+    },
+    "threadListParams": {
+      "type": "object",
+      "properties": {
+        "limit": { "type": "integer", "minimum": 1 },
+        "searchTerm": { "type": "string" },
+        "cursor": { "type": ["string", "null"] }
+      },
+      "additionalProperties": { "$ref": "#/$defs/jsonValue" }
+    },
+    "threadListRequest": {
+      "allOf": [
+        { "$ref": "#/$defs/clientRequestBase" },
+        { "properties": { "method": { "const": "thread.list" }, "params": { "$ref": "#/$defs/threadListParams" } } }
+      ]
+    },
+    "threadReadParams": {
+      "type": "object",
+      "required": ["threadId"],
+      "properties": {
+        "threadId": { "type": "string", "minLength": 1 }
+      },
+      "additionalProperties": { "$ref": "#/$defs/jsonValue" }
+    },
+    "threadReadRequest": {
+      "allOf": [
+        { "$ref": "#/$defs/clientRequestBase" },
+        { "properties": { "method": { "const": "thread.read" }, "params": { "$ref": "#/$defs/threadReadParams" } } }
+      ]
+    },
+    "threadCreateParams": {
+      "type": "object",
+      "required": ["cwd"],
+      "properties": {
+        "cwd": { "type": "string", "minLength": 1 }
+      },
+      "additionalProperties": { "$ref": "#/$defs/jsonValue" }
+    },
+    "threadCreateRequest": {
+      "allOf": [
+        { "$ref": "#/$defs/clientRequestBase" },
+        { "properties": { "method": { "const": "thread.create" }, "params": { "$ref": "#/$defs/threadCreateParams" } } }
+      ]
+    },
+    "threadDeleteRequest": {
+      "allOf": [
+        { "$ref": "#/$defs/clientRequestBase" },
+        { "properties": { "method": { "const": "thread.delete" }, "params": { "$ref": "#/$defs/threadReadParams" } } }
+      ]
+    },
+    "threadResumeRequest": {
+      "allOf": [
+        { "$ref": "#/$defs/clientRequestBase" },
+        { "properties": { "method": { "const": "thread.resume" }, "params": { "$ref": "#/$defs/threadReadParams" } } }
+      ]
+    },
+    "turnStartParams": {
+      "type": "object",
+      "required": ["threadId", "text", "clientRequestId"],
+      "properties": {
+        "threadId": { "type": "string", "minLength": 1 },
+        "text": { "type": "string" },
+        "clientRequestId": { "type": "string", "minLength": 1 },
+        "attachments": { "type": "array", "items": { "$ref": "#/$defs/attachment" } }
+      },
+      "additionalProperties": { "$ref": "#/$defs/jsonValue" }
+    },
+    "turnStartRequest": {
+      "allOf": [
+        { "$ref": "#/$defs/clientRequestBase" },
+        { "properties": { "method": { "const": "turn.start" }, "params": { "$ref": "#/$defs/turnStartParams" } } }
+      ]
+    },
+    "turnInterruptParams": {
+      "type": "object",
+      "required": ["threadId", "turnId"],
+      "properties": {
+        "threadId": { "type": "string", "minLength": 1 },
+        "turnId": { "type": "string", "minLength": 1 }
+      },
+      "additionalProperties": { "$ref": "#/$defs/jsonValue" }
+    },
+    "turnInterruptRequest": {
+      "allOf": [
+        { "$ref": "#/$defs/clientRequestBase" },
+        { "properties": { "method": { "const": "turn.interrupt" }, "params": { "$ref": "#/$defs/turnInterruptParams" } } }
+      ]
+    },
+    "approvalResolveParams": {
+      "type": "object",
+      "required": ["approvalId", "decision"],
+      "properties": {
+        "approvalId": { "type": "string", "minLength": 1 },
+        "decision": { "type": "string", "minLength": 1 }
+      },
+      "additionalProperties": { "$ref": "#/$defs/jsonValue" }
+    },
+    "approvalResolveRequest": {
+      "allOf": [
+        { "$ref": "#/$defs/clientRequestBase" },
+        { "properties": { "method": { "const": "approval.resolve" }, "params": { "$ref": "#/$defs/approvalResolveParams" } } }
+      ]
+    },
+    "eventsResumeParams": {
+      "type": "object",
+      "required": ["afterSequence", "clientId"],
+      "properties": {
+        "afterSequence": { "type": "integer", "minimum": 0 },
+        "clientId": { "type": "string", "minLength": 1 }
+      },
+      "additionalProperties": { "$ref": "#/$defs/jsonValue" }
+    },
+    "eventsResumeRequest": {
+      "allOf": [
+        { "$ref": "#/$defs/clientRequestBase" },
+        { "properties": { "method": { "const": "events.resume" }, "params": { "$ref": "#/$defs/eventsResumeParams" } } }
+      ]
+    },
+    "eventsAckParams": {
+      "type": "object",
+      "required": ["clientId", "sequence"],
+      "properties": {
+        "clientId": { "type": "string", "minLength": 1 },
+        "sequence": { "type": "integer", "minimum": 0 }
+      },
+      "additionalProperties": { "$ref": "#/$defs/jsonValue" }
+    },
+    "eventsAckRequest": {
+      "allOf": [
+        { "$ref": "#/$defs/clientRequestBase" },
+        { "properties": { "method": { "const": "events.ack" }, "params": { "$ref": "#/$defs/eventsAckParams" } } }
+      ]
+    },
+    "deviceRevokeParams": {
+      "type": "object",
+      "required": ["deviceId"],
+      "properties": {
+        "deviceId": { "type": "string", "minLength": 1 }
+      },
+      "additionalProperties": { "$ref": "#/$defs/jsonValue" }
+    },
+    "pairingCompleteRequest": {
+      "allOf": [
+        { "$ref": "#/$defs/clientRequestBase" },
+        { "properties": { "method": { "const": "pairing.complete" }, "params": { "$ref": "#/$defs/objectParams" } } }
+      ]
+    },
+    "deviceListRequest": {
+      "allOf": [
+        { "$ref": "#/$defs/clientRequestBase" },
+        { "properties": { "method": { "const": "device.list" }, "params": { "$ref": "#/$defs/objectParams" } } }
+      ]
+    },
+    "deviceRevokeRequest": {
+      "allOf": [
+        { "$ref": "#/$defs/clientRequestBase" },
+        { "properties": { "method": { "const": "device.revoke" }, "params": { "$ref": "#/$defs/deviceRevokeParams" } } }
+      ]
+    },
+    "mockFaultConfigureRequest": {
+      "allOf": [
+        { "$ref": "#/$defs/clientRequestBase" },
+        { "properties": { "method": { "const": "mock.fault.configure" }, "params": { "$ref": "#/$defs/objectParams" } } }
+      ]
+    },
+    "mockFaultReleaseRequest": {
+      "allOf": [
+        { "$ref": "#/$defs/clientRequestBase" },
+        { "properties": { "method": { "const": "mock.fault.release" }, "params": { "$ref": "#/$defs/objectParams" } } }
+      ]
+    },
+    "unknownClientRequest": {
+      "allOf": [
+        { "$ref": "#/$defs/clientRequestBase" },
+        {
+          "properties": {
+            "method": {
+              "not": {
+                "enum": [
+                  "connection.info",
+                  "workspace.list",
+                  "thread.list",
+                  "thread.read",
+                  "thread.create",
+                  "thread.delete",
+                  "thread.resume",
+                  "turn.start",
+                  "turn.interrupt",
+                  "approval.resolve",
+                  "events.resume",
+                  "events.ack",
+                  "pairing.complete",
+                  "device.list",
+                  "device.revoke",
+                  "mock.fault.configure",
+                  "mock.fault.release"
+                ]
+              }
+            },
+            "params": { "$ref": "#/$defs/objectParams" }
+          }
+        }
+      ]
+    },
+    "serverResponse": {
+      "type": "object",
+      "required": ["kind", "id", "ok"],
+      "properties": {
+        "kind": { "const": "response" },
+        "id": { "type": "string", "minLength": 1 },
+        "ok": { "type": "boolean" },
+        "result": { "$ref": "#/$defs/jsonValue" },
+        "error": {
+          "type": "object",
+          "required": ["code", "message"],
+          "properties": {
+            "code": { "type": "string" },
+            "message": { "type": "string" },
+            "details": { "$ref": "#/$defs/jsonValue" }
+          },
+          "additionalProperties": { "$ref": "#/$defs/jsonValue" }
+        }
+      },
+      "additionalProperties": true
+    },
+    "eventEnvelope": {
+      "type": "object",
+      "required": ["kind", "sequence", "eventId", "event"],
+      "properties": {
+        "kind": { "const": "event" },
+        "sequence": { "type": "integer", "minimum": 0 },
+        "eventId": { "type": "string", "minLength": 1 },
+        "event": { "$ref": "#/$defs/remoteEvent" }
+      },
+      "additionalProperties": true
+    },
+    "remoteEvent": {
+      "oneOf": [
+        { "$ref": "#/$defs/connectionStatusEvent" },
+        { "$ref": "#/$defs/threadListSnapshotEvent" },
+        { "$ref": "#/$defs/threadSnapshotEvent" },
+        { "$ref": "#/$defs/threadUpsertEvent" },
+        { "$ref": "#/$defs/threadRemovedEvent" },
+        { "$ref": "#/$defs/turnStartedEvent" },
+        { "$ref": "#/$defs/turnCompletedEvent" },
+        { "$ref": "#/$defs/itemUpsertEvent" },
+        { "$ref": "#/$defs/itemDeltaEvent" },
+        { "$ref": "#/$defs/turnDiffUpdatedEvent" },
+        { "$ref": "#/$defs/approvalRequestedEvent" },
+        { "$ref": "#/$defs/approvalResolvedEvent" },
+        { "$ref": "#/$defs/errorEvent" },
+        { "$ref": "#/$defs/rawEvent" },
+        { "$ref": "#/$defs/unknownRemoteEvent" }
+      ]
+    },
+    "remoteEventBase": {
+      "type": "object",
+      "required": ["method", "params"],
+      "properties": {
+        "method": { "type": "string", "minLength": 1 },
+        "params": { "$ref": "#/$defs/objectParams" }
+      },
+      "additionalProperties": true
+    },
+    "connectionStatusParams": {
+      "type": "object",
+      "required": ["phase"],
+      "properties": {
+        "phase": { "type": "string" },
+        "message": { "type": "string" }
+      },
+      "additionalProperties": { "$ref": "#/$defs/jsonValue" }
+    },
+    "connectionStatusEvent": {
+      "allOf": [
+        { "$ref": "#/$defs/remoteEventBase" },
+        { "properties": { "method": { "const": "connection.status" }, "params": { "$ref": "#/$defs/connectionStatusParams" } } }
+      ]
+    },
+    "threadListSnapshotParams": {
+      "type": "object",
+      "required": ["threads", "nextCursor"],
+      "properties": {
+        "threads": { "type": "array", "items": { "$ref": "#/$defs/threadSummary" } },
+        "nextCursor": { "type": ["string", "null"] },
+        "append": { "type": "boolean" }
+      },
+      "additionalProperties": { "$ref": "#/$defs/jsonValue" }
+    },
+    "threadListSnapshotEvent": {
+      "allOf": [
+        { "$ref": "#/$defs/remoteEventBase" },
+        { "properties": { "method": { "const": "thread.list.snapshot" }, "params": { "$ref": "#/$defs/threadListSnapshotParams" } } }
+      ]
+    },
+    "threadSnapshotParams": {
+      "type": "object",
+      "required": ["thread"],
+      "properties": {
+        "thread": { "$ref": "#/$defs/remoteThread" }
+      },
+      "additionalProperties": { "$ref": "#/$defs/jsonValue" }
+    },
+    "threadSnapshotEvent": {
+      "allOf": [
+        { "$ref": "#/$defs/remoteEventBase" },
+        { "properties": { "method": { "const": "thread.snapshot" }, "params": { "$ref": "#/$defs/threadSnapshotParams" } } }
+      ]
+    },
+    "threadUpsertParams": {
+      "type": "object",
+      "required": ["thread"],
+      "properties": {
+        "thread": { "$ref": "#/$defs/threadSummary" }
+      },
+      "additionalProperties": { "$ref": "#/$defs/jsonValue" }
+    },
+    "threadUpsertEvent": {
+      "allOf": [
+        { "$ref": "#/$defs/remoteEventBase" },
+        { "properties": { "method": { "const": "thread.upsert" }, "params": { "$ref": "#/$defs/threadUpsertParams" } } }
+      ]
+    },
+    "threadRemovedParams": {
+      "type": "object",
+      "required": ["threadId"],
+      "properties": {
+        "threadId": { "type": "string", "minLength": 1 }
+      },
+      "additionalProperties": { "$ref": "#/$defs/jsonValue" }
+    },
+    "threadRemovedEvent": {
+      "allOf": [
+        { "$ref": "#/$defs/remoteEventBase" },
+        { "properties": { "method": { "const": "thread.removed" }, "params": { "$ref": "#/$defs/threadRemovedParams" } } }
+      ]
+    },
+    "turnEventParams": {
+      "type": "object",
+      "required": ["threadId", "turn"],
+      "properties": {
+        "threadId": { "type": "string", "minLength": 1 },
+        "turn": { "$ref": "#/$defs/remoteTurn" }
+      },
+      "additionalProperties": { "$ref": "#/$defs/jsonValue" }
+    },
+    "turnStartedEvent": {
+      "allOf": [
+        { "$ref": "#/$defs/remoteEventBase" },
+        { "properties": { "method": { "const": "turn.started" }, "params": { "$ref": "#/$defs/turnEventParams" } } }
+      ]
+    },
+    "turnCompletedEvent": {
+      "allOf": [
+        { "$ref": "#/$defs/remoteEventBase" },
+        { "properties": { "method": { "const": "turn.completed" }, "params": { "$ref": "#/$defs/turnEventParams" } } }
+      ]
+    },
+    "itemUpsertParams": {
+      "type": "object",
+      "required": ["threadId", "turnId", "item"],
+      "properties": {
+        "threadId": { "type": "string", "minLength": 1 },
+        "turnId": { "type": "string", "minLength": 1 },
+        "item": { "$ref": "#/$defs/remoteItem" }
+      },
+      "additionalProperties": { "$ref": "#/$defs/jsonValue" }
+    },
+    "itemUpsertEvent": {
+      "allOf": [
+        { "$ref": "#/$defs/remoteEventBase" },
+        { "properties": { "method": { "const": "item.upsert" }, "params": { "$ref": "#/$defs/itemUpsertParams" } } }
+      ]
+    },
+    "itemDeltaParams": {
+      "type": "object",
+      "required": ["threadId", "turnId", "itemId", "target", "delta"],
+      "properties": {
+        "threadId": { "type": "string", "minLength": 1 },
+        "turnId": { "type": "string", "minLength": 1 },
+        "itemId": { "type": "string", "minLength": 1 },
+        "target": {
+          "type": "string",
+          "enum": ["agentMessage", "reasoningSummary", "reasoningText", "plan", "commandOutput", "filePatch", "toolOutput"]
+        },
+        "delta": { "type": "string" }
+      },
+      "additionalProperties": { "$ref": "#/$defs/jsonValue" }
+    },
+    "itemDeltaEvent": {
+      "allOf": [
+        { "$ref": "#/$defs/remoteEventBase" },
+        { "properties": { "method": { "const": "item.delta" }, "params": { "$ref": "#/$defs/itemDeltaParams" } } }
+      ]
+    },
+    "turnDiffUpdatedParams": {
+      "type": "object",
+      "required": ["threadId", "turnId", "diff"],
+      "properties": {
+        "threadId": { "type": "string", "minLength": 1 },
+        "turnId": { "type": "string", "minLength": 1 },
+        "diff": { "type": "string" }
+      },
+      "additionalProperties": { "$ref": "#/$defs/jsonValue" }
+    },
+    "turnDiffUpdatedEvent": {
+      "allOf": [
+        { "$ref": "#/$defs/remoteEventBase" },
+        { "properties": { "method": { "const": "turn.diff.updated" }, "params": { "$ref": "#/$defs/turnDiffUpdatedParams" } } }
+      ]
+    },
+    "approvalRequestedParams": {
+      "type": "object",
+      "required": ["approval"],
+      "properties": {
+        "approval": { "$ref": "#/$defs/approval" }
+      },
+      "additionalProperties": { "$ref": "#/$defs/jsonValue" }
+    },
+    "approvalRequestedEvent": {
+      "allOf": [
+        { "$ref": "#/$defs/remoteEventBase" },
+        { "properties": { "method": { "const": "approval.requested" }, "params": { "$ref": "#/$defs/approvalRequestedParams" } } }
+      ]
+    },
+    "approvalResolvedParams": {
+      "type": "object",
+      "required": ["approvalId"],
+      "properties": {
+        "approvalId": { "type": "string", "minLength": 1 }
+      },
+      "additionalProperties": { "$ref": "#/$defs/jsonValue" }
+    },
+    "approvalResolvedEvent": {
+      "allOf": [
+        { "$ref": "#/$defs/remoteEventBase" },
+        { "properties": { "method": { "const": "approval.resolved" }, "params": { "$ref": "#/$defs/approvalResolvedParams" } } }
+      ]
+    },
+    "errorParams": {
+      "type": "object",
+      "required": ["message"],
+      "properties": {
+        "message": { "type": "string" },
+        "threadId": { "type": "string" },
+        "turnId": { "type": "string" }
+      },
+      "additionalProperties": { "$ref": "#/$defs/jsonValue" }
+    },
+    "errorEvent": {
+      "allOf": [
+        { "$ref": "#/$defs/remoteEventBase" },
+        { "properties": { "method": { "const": "error" }, "params": { "$ref": "#/$defs/errorParams" } } }
+      ]
+    },
+    "rawParams": {
+      "type": "object",
+      "required": ["method", "data"],
+      "properties": {
+        "method": { "type": "string", "minLength": 1 },
+        "data": { "$ref": "#/$defs/jsonValue" }
+      },
+      "additionalProperties": { "$ref": "#/$defs/jsonValue" }
+    },
+    "rawEvent": {
+      "allOf": [
+        { "$ref": "#/$defs/remoteEventBase" },
+        { "properties": { "method": { "const": "raw" }, "params": { "$ref": "#/$defs/rawParams" } } }
+      ]
+    },
+    "unknownRemoteEvent": {
+      "allOf": [
+        { "$ref": "#/$defs/remoteEventBase" },
+        {
+          "properties": {
+            "method": {
+              "not": {
+                "enum": [
+                  "connection.status",
+                  "thread.list.snapshot",
+                  "thread.snapshot",
+                  "thread.upsert",
+                  "thread.removed",
+                  "turn.started",
+                  "turn.completed",
+                  "item.upsert",
+                  "item.delta",
+                  "turn.diff.updated",
+                  "approval.requested",
+                  "approval.resolved",
+                  "error",
+                  "raw"
+                ]
+              }
+            },
+            "params": { "$ref": "#/$defs/objectParams" }
+          }
+        }
+      ]
+    },
+    "threadSummary": {
+      "type": "object",
+      "required": [
+        "id",
+        "sessionId",
+        "title",
+        "preview",
+        "cwd",
+        "modelProvider",
+        "createdAt",
+        "updatedAt",
+        "status",
+        "isPinned",
+        "source"
+      ],
+      "properties": {
+        "id": { "type": "string" },
+        "sessionId": { "type": "string" },
+        "title": { "type": "string" },
+        "preview": { "type": "string" },
+        "cwd": { "type": "string" },
+        "modelProvider": { "type": "string" },
+        "createdAt": { "type": "number" },
+        "updatedAt": { "type": "number" },
+        "status": { "type": "string" },
+        "isPinned": { "type": "boolean" },
+        "source": { "$ref": "#/$defs/jsonValue" }
+      },
+      "additionalProperties": { "$ref": "#/$defs/jsonValue" }
+    },
+    "remoteTurn": {
+      "type": "object",
+      "required": [
+        "id",
+        "status",
+        "itemIds",
+        "startedAt",
+        "completedAt",
+        "durationMs",
+        "error"
+      ],
+      "properties": {
+        "id": { "type": "string" },
+        "status": { "type": "string" },
+        "itemIds": { "type": "array", "items": { "type": "string" } },
+        "startedAt": { "type": ["integer", "null"] },
+        "completedAt": { "type": ["integer", "null"] },
+        "durationMs": { "type": ["integer", "null"] },
+        "error": { "type": ["string", "null"] },
+        "diff": { "type": "string" }
+      },
+      "additionalProperties": { "$ref": "#/$defs/jsonValue" }
+    },
+    "remoteThread": {
+      "allOf": [
+        { "$ref": "#/$defs/threadSummary" },
+        {
+          "type": "object",
+          "required": ["turnIds", "turns", "items"],
+          "properties": {
+            "turnIds": { "type": "array", "items": { "type": "string" } },
+            "turns": {
+              "type": "object",
+              "additionalProperties": { "$ref": "#/$defs/remoteTurn" }
+            },
+            "items": {
+              "type": "object",
+              "additionalProperties": { "$ref": "#/$defs/remoteItem" }
+            }
+          },
+          "additionalProperties": { "$ref": "#/$defs/jsonValue" }
+        }
+      ]
+    },
+    "remoteItem": {
+      "type": "object",
+      "required": ["type", "id", "turnId", "status"],
+      "properties": {
+        "type": { "type": "string" },
+        "id": { "type": "string" },
+        "turnId": { "type": "string" },
+        "status": { "type": "string" },
+        "text": { "type": "string" },
+        "phase": { "type": ["string", "null"] },
+        "summary": { "type": "array", "items": { "type": "string" } },
+        "content": { "type": "array", "items": { "type": "string" } },
+        "command": { "type": "string" },
+        "cwd": { "type": "string" },
+        "output": { "type": "string" },
+        "exitCode": { "type": ["integer", "null"] },
+        "durationMs": { "type": ["integer", "null"] },
+        "changes": { "type": "array", "items": { "$ref": "#/$defs/jsonValue" } },
+        "patch": { "type": "string" },
+        "namespace": { "type": ["string", "null"] },
+        "tool": { "type": "string" },
+        "arguments": { "$ref": "#/$defs/jsonValue" },
+        "success": { "type": ["boolean", "null"] }
+      },
+      "additionalProperties": { "$ref": "#/$defs/jsonValue" }
+    },
+    "attachment": {
+      "type": "object",
+      "required": ["id", "name", "mimeType", "size", "kind"],
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "mimeType": { "type": "string" },
+        "size": { "type": "integer", "minimum": 0 },
+        "kind": { "type": "string", "enum": ["image", "audio", "file"] },
+        "dataUrl": { "type": "string" },
+        "text": { "type": "string" }
+      },
+      "additionalProperties": { "$ref": "#/$defs/jsonValue" }
+    },
+    "approval": {
+      "type": "object",
+      "required": [
+        "id",
+        "method",
+        "threadId",
+        "turnId",
+        "itemId",
+        "title",
+        "description",
+        "availableDecisions",
+        "raw"
+      ],
+      "properties": {
+        "id": { "type": "string" },
+        "method": { "type": "string" },
+        "threadId": { "type": "string" },
+        "turnId": { "type": "string" },
+        "itemId": { "type": "string" },
+        "title": { "type": "string" },
+        "description": { "type": "string" },
+        "command": { "type": "string" },
+        "cwd": { "type": "string" },
+        "availableDecisions": { "type": "array", "items": { "type": "string" } },
+        "raw": { "$ref": "#/$defs/jsonValue" }
+      },
+      "additionalProperties": { "$ref": "#/$defs/jsonValue" }
+    }
+  }
+}

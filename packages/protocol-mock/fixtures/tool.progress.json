@@ -1,0 +1,15 @@
+{
+  "kind": "event",
+  "sequence": 44,
+  "eventId": "fixture-tool-progress",
+  "event": {
+    "method": "item.delta",
+    "params": {
+      "threadId": "thread-fixture",
+      "turnId": "turn-fixture",
+      "itemId": "tool-fixture",
+      "target": "toolOutput",
+      "delta": "仍在处理"
+    }
+  }
+}

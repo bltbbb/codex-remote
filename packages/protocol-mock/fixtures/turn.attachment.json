@@ -1,0 +1,28 @@
+{
+  "kind": "request",
+  "id": "fixture-attachment-request",
+  "method": "turn.start",
+  "params": {
+    "threadId": "thread-fixture",
+    "text": "请检查附件",
+    "clientRequestId": "fixture-attachment-submit",
+    "attachments": [
+      {
+        "id": "attachment-1",
+        "name": "screenshot.png",
+        "mimeType": "image/png",
+        "size": 12,
+        "kind": "image",
+        "dataUrl": "data:image/png;base64,AA=="
+      },
+      {
+        "id": "attachment-2",
+        "name": "notes.md",
+        "mimeType": "text/markdown",
+        "size": 10,
+        "kind": "file",
+        "text": "# 备注"
+      }
+    ]
+  }
+}

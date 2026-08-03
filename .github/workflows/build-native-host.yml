@@ -1,0 +1,55 @@
+name: 编译 Native Host
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - "packages/native-host/**"
+      - ".github/workflows/build-native-host.yml"
+  pull_request:
+    paths:
+      - "packages/native-host/**"
+      - ".github/workflows/build-native-host.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  build-windows-x64:
+    runs-on: windows-2025
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+
+      - name: 安装 .NET 8
+        uses: actions/setup-dotnet@67a3573c9a986a3f9c594539f4ab511d57bb3ce9
+        with:
+          dotnet-version: "8.0.x"
+
+      - name: 编译单文件 EXE
+        shell: pwsh
+        run: >-
+          dotnet publish packages/native-host/CodexRemote.NativeHost.csproj
+          --configuration Release
+          --runtime win-x64
+          --self-contained true
+          --output artifacts/native-host-win-x64
+          -p:PublishSingleFile=true
+          -p:IncludeNativeLibrariesForSelfExtract=true
+          -p:DebugType=None
+          -p:DebugSymbols=false
+
+      - name: 生成 SHA-256
+        shell: pwsh
+        run: |
+          $artifact = Resolve-Path "artifacts/native-host-win-x64/codex-remote-native-host.exe"
+          $hash = (Get-FileHash -LiteralPath $artifact -Algorithm SHA256).Hash
+          [IO.File]::WriteAllText("artifacts/native-host-win-x64/codex-remote-native-host.exe.sha256", "$hash  codex-remote-native-host.exe`n")
+
+      - name: 上传编译产物
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: codex-remote-native-host-win-x64
+          path: artifacts/native-host-win-x64/
+          if-no-files-found: error
+          retention-days: 14

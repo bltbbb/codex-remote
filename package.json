@@ -1,0 +1,43 @@
+{
+  "name": "codex-remote",
+  "version": "0.1.0",
+  "private": true,
+  "description": "面向 Codex Desktop 的响应式远程客户端、协议模拟器和 Windows Bridge",
+  "packageManager": "pnpm@9.15.9",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "build": "pnpm -r --if-present build",
+    "dev:web": "pnpm --filter @codex-remote/web dev",
+    "dev:mock": "pnpm --filter @codex-remote/protocol-mock dev",
+    "dev:bridge": "pnpm --filter @codex-remote/windows-bridge dev",
+    "start:bridge": "pnpm --filter @codex-remote/windows-bridge start",
+    "install:dotnet-sdk": "pwsh -NoProfile -File scripts/install-local-dotnet-sdk.ps1",
+    "build:native-host": "pwsh -NoProfile -File scripts/build-native-host-local.ps1",
+    "install:native-host": "pwsh -NoProfile -File scripts/launch-stage4-native-host-install.ps1",
+    "install:native-host:external": "pwsh -NoProfile -File scripts/launch-stage4-native-host-install.ps1",
+    "rollback:native-host": "pwsh -NoProfile -File scripts/rollback-stage4-native-host.ps1",
+    "check:stage4": "pwsh -NoProfile -File scripts/start-stage4-tailscale.ps1 -CheckOnly",
+    "start:stage4": "pwsh -NoProfile -File scripts/start-stage4-tailscale.ps1",
+    "setup:cloudflare": "pwsh -NoProfile -File scripts/setup-cloudflare-tunnel.ps1",
+    "check:cloudflare": "pwsh -NoProfile -File scripts/start-cloudflare-tunnel.ps1 -CheckOnly",
+    "start:cloudflare": "pwsh -NoProfile -File scripts/start-cloudflare-tunnel.ps1",
+    "launch:cloudflare": "pwsh -NoProfile -File scripts/launch-cloudflare-tunnel.ps1",
+    "stop:cloudflare": "pwsh -NoProfile -File scripts/stop-cloudflare-tunnel.ps1",
+    "test:e2e": "pnpm --filter @codex-remote/web test:e2e",
+    "verify:real": "pnpm --filter @codex-remote/windows-bridge exec tsx scripts/verify-real-bridge.ts",
+    "verify:native-host": "pnpm --filter @codex-remote/windows-bridge exec tsx scripts/verify-native-host.ts",
+    "verify:stage4": "pnpm --filter @codex-remote/windows-bridge exec tsx scripts/verify-stage4-security.ts",
+    "verify:cloudflare": "pnpm --filter @codex-remote/windows-bridge exec tsx scripts/verify-cloudflare-tunnel.ts",
+    "diagnose:stage4": "pnpm --filter @codex-remote/windows-bridge exec tsx scripts/diagnose-stage4-events.ts",
+    "test": "pnpm -r --if-present test",
+    "typecheck": "pnpm -r --if-present typecheck"
+  },
+  "devDependencies": {
+    "@types/node": "^22.15.0",
+    "tsx": "^4.19.4",
+    "typescript": "^5.8.3",
+    "vitest": "^3.1.4"
+  }
+}
