@@ -2,6 +2,10 @@ import Foundation
 
 #if canImport(Combine)
 import Combine
+
+public typealias RemoteAppStoreObservableObject = ObservableObject
+#else
+public protocol RemoteAppStoreObservableObject: AnyObject {}
 #endif
 
 public struct RemoteAppStoreCallbacks {
@@ -55,13 +59,8 @@ public struct RemoteThreadListResult: Codable, Equatable {
     }
 }
 
-#if canImport(Combine)
 @MainActor
-public final class RemoteAppStore: ObservableObject {
-#else
-@MainActor
-public final class RemoteAppStore {
-#endif
+public final class RemoteAppStore: RemoteAppStoreObservableObject {
     #if canImport(Combine)
     @Published
     #endif
