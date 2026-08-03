@@ -235,11 +235,17 @@ final class RemoteAppStoreTests: XCTestCase {
         context.socket.requests.filter { $0.method == method }
     }
 
-    private func waitUntil(_ condition: @escaping () async -> Bool) async {
-        for _ in 0..<100 {
+    private func waitUntil(
+        _ condition: @escaping () async -> Bool,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) async {
+        for _ in 0..<500 {
             if await condition() { return }
-            await Task.yield()
+            try? await Task.sleep(nanoseconds: 10_000_000)
         }
+        if await condition() { return }
+        XCTFail("等待条件超时", file: file, line: line)
     }
 
     private func makeSummary(id: String = "thread-a") -> RemoteThreadSummary {

@@ -122,6 +122,7 @@ final class RemoteWebSocketClientTests: XCTestCase {
                 "resetRequired": .bool(false)
             ])
         )))
+        await waitUntil { collector.events.map(\.eventID) == ["event-2", "event-3", "event-4"] }
         await waitUntil { context.connection.phases.contains(.online) }
 
         XCTAssertEqual(collector.events.map(\.eventID), ["event-2", "event-3", "event-4"])
@@ -203,16 +204,22 @@ final class RemoteWebSocketClientTests: XCTestCase {
         }
     }
 
-    private func waitUntil(_ condition: @escaping () async -> Bool) async {
-        for _ in 0..<100 {
+    private func waitUntil(
+        _ condition: @escaping () async -> Bool,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) async {
+        for _ in 0..<500 {
             if await condition() { return }
-            await Task.yield()
+            try? await Task.sleep(nanoseconds: 10_000_000)
         }
+        if await condition() { return }
+        XCTFail("等待条件超时", file: file, line: line)
     }
 
     private func drain() async {
         for _ in 0..<12 {
-            await Task.yield()
+            try? await Task.sleep(nanoseconds: 1_000_000)
         }
     }
 
