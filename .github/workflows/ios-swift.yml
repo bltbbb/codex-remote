@@ -5,12 +5,18 @@ on:
   push:
     paths:
       - "apps/ios/**"
-      - "packages/protocol-mock/fixtures/**"
+      - "packages/protocol/**"
+      - "packages/protocol-mock/**"
+      - "package.json"
+      - "pnpm-lock.yaml"
       - ".github/workflows/ios-swift.yml"
   pull_request:
     paths:
       - "apps/ios/**"
-      - "packages/protocol-mock/fixtures/**"
+      - "packages/protocol/**"
+      - "packages/protocol-mock/**"
+      - "package.json"
+      - "pnpm-lock.yaml"
       - ".github/workflows/ios-swift.yml"
 
 permissions:
@@ -30,6 +36,40 @@ jobs:
           xcodebuild -version
           swift --version
           xcrun simctl list devices available | sed -n '1,120p'
+
+      - name: 准备协议模拟器
+        shell: bash
+        run: |
+          set -eo pipefail
+          node --version
+          npm --version
+          npm install --global pnpm@9.15.9
+          pnpm install --frozen-lockfile
+
+      - name: 启动协议模拟器
+        shell: bash
+        run: |
+          set -eo pipefail
+          REMOTE_CODEX_MOCK_HOST=127.0.0.1 \
+          REMOTE_CODEX_MOCK_PORT=18787 \
+          REMOTE_CODEX_MOCK_STEP_MS=10 \
+          pnpm exec tsx packages/protocol-mock/src/server.ts \
+            > "$RUNNER_TEMP/protocol-mock.log" 2>&1 &
+          echo $! > "$RUNNER_TEMP/protocol-mock.pid"
+          for _ in {1..30}; do
+            if lsof -nP -iTCP:18787 -sTCP:LISTEN >/dev/null 2>&1; then
+              echo "协议模拟器已监听 127.0.0.1:18787"
+              exit 0
+            fi
+            if ! kill -0 "$(cat "$RUNNER_TEMP/protocol-mock.pid")" 2>/dev/null; then
+              cat "$RUNNER_TEMP/protocol-mock.log"
+              exit 1
+            fi
+            sleep 1
+          done
+          cat "$RUNNER_TEMP/protocol-mock.log"
+          echo "::error::协议模拟器启动超时"
+          exit 1
 
       - name: 列出 Swift Package schemes
         shell: bash
@@ -72,8 +112,22 @@ jobs:
             exit 1
           fi
           echo "使用模拟器：$device"
+          export REMOTE_CODEX_E2E=1
+          export REMOTE_CODEX_E2E_URL=ws://127.0.0.1:18787/ws
           xcodebuild test \
             -scheme RemoteCodex-Package \
             -destination "platform=iOS Simulator,name=$device,OS=latest" \
             -derivedDataPath ../../artifacts/xcode-derived-data \
             CODE_SIGNING_ALLOWED=NO
+
+      - name: 停止协议模拟器
+        if: always()
+        shell: bash
+        run: |
+          if [ -f "$RUNNER_TEMP/protocol-mock.pid" ]; then
+            kill "$(cat "$RUNNER_TEMP/protocol-mock.pid")" 2>/dev/null || true
+          fi
+          if [ -f "$RUNNER_TEMP/protocol-mock.log" ]; then
+            echo "协议模拟器日志："
+            cat "$RUNNER_TEMP/protocol-mock.log"
+          fi
