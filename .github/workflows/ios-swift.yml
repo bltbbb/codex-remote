@@ -53,7 +53,7 @@ jobs:
         run: |
           set -eo pipefail
           xcodebuild build-for-testing \
-            -scheme RemoteCodexCore \
+            -scheme RemoteCodex-Package \
             -destination "generic/platform=iOS Simulator" \
             -derivedDataPath ../../artifacts/xcode-derived-data \
             CODE_SIGNING_ALLOWED=NO
@@ -73,7 +73,7 @@ jobs:
           fi
           echo "使用模拟器：$device"
           xcodebuild test \
-            -scheme RemoteCodexCore \
+            -scheme RemoteCodex-Package \
             -destination "platform=iOS Simulator,name=$device,OS=latest" \
             -derivedDataPath ../../artifacts/xcode-derived-data \
             CODE_SIGNING_ALLOWED=NO
