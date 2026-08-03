@@ -130,16 +130,20 @@ final class RemotePairingTests: XCTestCase {
         defer { try? store.deleteToken() }
 
         do {
-            XCTAssertNil(try store.loadToken())
+            let initialToken = try store.loadToken()
+            XCTAssertNil(initialToken)
 
             try store.saveToken("token-one")
-            XCTAssertEqual(try store.loadToken(), "token-one")
+            let firstToken = try store.loadToken()
+            XCTAssertEqual(firstToken, "token-one")
 
             try store.saveToken("token-two")
-            XCTAssertEqual(try store.loadToken(), "token-two")
+            let secondToken = try store.loadToken()
+            XCTAssertEqual(secondToken, "token-two")
 
             try store.deleteToken()
-            XCTAssertNil(try store.loadToken())
+            let deletedToken = try store.loadToken()
+            XCTAssertNil(deletedToken)
         } catch let error as RemoteCredentialStoreError {
             if error == .keychainStatus(-34018) {
                 throw XCTSkip("iOS Simulator 没有 Keychain entitlement")
