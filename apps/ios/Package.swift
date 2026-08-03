@@ -15,7 +15,7 @@ let package = Package(
         .target(
             name: "RemoteCodexCore",
             linkerSettings: [
-                .linkedFramework("Security", condition: .when(platforms: [.iOS, .macOS]))
+                .linkedFramework("Security", .when(platforms: [.iOS, .macOS]))
             ]
         ),
         .executableTarget(name: "RemoteCodexApp", dependencies: ["RemoteCodexCore"]),
