@@ -9,9 +9,11 @@ struct ThreadSidebarView: View {
     let pairedDeviceName: String
     let forgetPairing: () async -> Void
     @State private var isCreating = false
-    @State private var showingCreateThread = false
+    @State private var showingWorkspacePicker = false
+    @State private var isLoadingWorkspaces = false
+    @State private var workspaceLoadError: String?
+    @State private var workspaces: [RemoteWorkspace] = []
     @State private var showingPairingSettings = false
-    @State private var newThreadCWD = ""
 
     var body: some View {
         List(selection: $selectedThreadID) {
@@ -29,11 +31,11 @@ struct ThreadSidebarView: View {
                     .disabled(isRefreshing || store.connectionPhase != .online)
 
                     Button {
-                        showingCreateThread = true
+                        loadWorkspacesForCreation()
                     } label: {
                         Label("新建线程", systemImage: "plus")
                     }
-                    .disabled(isCreating || store.connectionPhase != .online)
+                    .disabled(isCreating || isLoadingWorkspaces || store.connectionPhase != .online)
 
                     Spacer(minLength: 0)
 
@@ -90,14 +92,19 @@ struct ThreadSidebarView: View {
         }
         .navigationTitle("Codex Remote")
         .listStyle(.sidebar)
-        .alert("新建线程", isPresented: $showingCreateThread) {
-            TextField("电脑上的工作目录", text: $newThreadCWD)
-            Button("创建") {
-                createThread()
-            }
-            Button("取消", role: .cancel) {}
-        } message: {
-            Text("输入电脑上已允许的工作目录")
+        .sheet(isPresented: $showingWorkspacePicker) {
+            WorkspacePickerView(
+                workspaces: workspaces,
+                isLoading: isLoadingWorkspaces,
+                errorMessage: workspaceLoadError,
+                isCreating: isCreating,
+                onSelect: createThread,
+                onRetry: loadWorkspacesForCreation,
+                onClose: {
+                    guard !isCreating else { return }
+                    showingWorkspacePicker = false
+                }
+            )
         }
         .confirmationDialog(
             "配对设置",
@@ -126,17 +133,122 @@ struct ThreadSidebarView: View {
         }
     }
 
-    private func createThread() {
-        let cwd = newThreadCWD.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !cwd.isEmpty else { return }
+    private func loadWorkspacesForCreation() {
+        guard store.connectionPhase == .online, !isCreating else { return }
+        showingWorkspacePicker = true
+        isLoadingWorkspaces = true
+        workspaceLoadError = nil
+        Task {
+            defer { isLoadingWorkspaces = false }
+            guard let result = await store.loadWorkspaces() else {
+                workspaceLoadError = store.lastErrorMessage ?? "工作区加载失败，请重试"
+                return
+            }
+            workspaces = result.workspaces
+        }
+    }
+
+    private func createThread(_ workspace: RemoteWorkspace) {
+        guard !isCreating else { return }
         isCreating = true
         Task {
-            let thread = await store.createThread(cwd: cwd)
-            if let thread = thread {
-                selectedThreadID = thread.id
-                newThreadCWD = ""
+            defer { isCreating = false }
+            let thread = await store.createThread(cwd: workspace.path)
+            guard let thread else { return }
+            selectedThreadID = thread.id
+            showingWorkspacePicker = false
+        }
+    }
+}
+
+private struct WorkspacePickerView: View {
+    let workspaces: [RemoteWorkspace]
+    let isLoading: Bool
+    let errorMessage: String?
+    let isCreating: Bool
+    let onSelect: (RemoteWorkspace) -> Void
+    let onRetry: () -> Void
+    let onClose: () -> Void
+
+    var body: some View {
+        NavigationStack {
+            Group {
+                if isLoading {
+                    ProgressView("正在加载电脑工作区...")
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                } else if let errorMessage {
+                    VStack(spacing: 12) {
+                        Image(systemName: "exclamationmark.triangle")
+                            .font(.title2)
+                            .foregroundColor(.orange)
+                        Text(errorMessage)
+                            .multilineTextAlignment(.center)
+                            .foregroundColor(.secondary)
+                        Button("重试", action: onRetry)
+                            .buttonStyle(.borderedProminent)
+                    }
+                    .padding(24)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                } else if workspaces.isEmpty {
+                    VStack(spacing: 12) {
+                        Image(systemName: "folder")
+                            .font(.title2)
+                            .foregroundColor(.secondary)
+                        Text("电脑端尚未暴露可用工作区")
+                            .foregroundColor(.secondary)
+                        Text("请在 Bridge 配置工作区后重试。")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                            .multilineTextAlignment(.center)
+                        Button("重新加载", action: onRetry)
+                            .buttonStyle(.bordered)
+                    }
+                    .padding(24)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                } else {
+                    List(workspaces) { workspace in
+                        Button {
+                            onSelect(workspace)
+                        } label: {
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text(workspace.name.isEmpty ? "未命名工作区" : workspace.name)
+                                    .font(.headline)
+                                    .foregroundColor(.primary)
+                                Text(workspace.path)
+                                    .font(.caption)
+                                    .foregroundColor(.secondary)
+                                    .lineLimit(2)
+                                Text(sourceTitle(workspace.source))
+                                    .font(.caption2)
+                                    .foregroundColor(.secondary)
+                            }
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                        .disabled(isCreating)
+                    }
+                }
             }
-            isCreating = false
+            .navigationTitle("选择工作区")
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("取消", action: onClose)
+                        .disabled(isCreating)
+                }
+            }
+        }
+        .presentationDetents([.medium, .large])
+    }
+
+    private func sourceTitle(_ source: RemoteWorkspaceSource) -> String {
+        switch source {
+        case .configured:
+            return "电脑配置"
+        case .history:
+            return "历史会话"
+        case let .unknown(value):
+            return value
         }
     }
 }

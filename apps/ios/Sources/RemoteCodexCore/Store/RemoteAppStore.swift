@@ -30,6 +30,7 @@ public enum RemoteAppStoreError: Error, Equatable, LocalizedError {
     case invalidInput(String)
     case invalidResponse(method: ClientMethod, detail: String)
     case encodingFailed(method: ClientMethod, detail: String)
+    case workspaceNotAllowed
     case missingActiveThread
     case missingActiveTurn
 
@@ -41,6 +42,8 @@ public enum RemoteAppStoreError: Error, Equatable, LocalizedError {
             return "\(method.rawValue) 响应格式无效：\(detail)"
         case let .encodingFailed(method, detail):
             return "\(method.rawValue) 请求编码失败：\(detail)"
+        case .workspaceNotAllowed:
+            return "该工作目录未在电脑端白名单中，请重新加载工作区"
         case .missingActiveThread:
             return "请先选择线程"
         case .missingActiveTurn:
@@ -59,6 +62,14 @@ public struct RemoteThreadListResult: Codable, Equatable {
     }
 }
 
+public struct RemoteWorkspaceListResult: Codable, Equatable {
+    public let workspaces: [RemoteWorkspace]
+
+    public init(workspaces: [RemoteWorkspace]) {
+        self.workspaces = workspaces
+    }
+}
+
 @MainActor
 public final class RemoteAppStore: RemoteAppStoreObservableObject {
     #if canImport(Combine)
@@ -69,6 +80,7 @@ public final class RemoteAppStore: RemoteAppStoreObservableObject {
     private let client: RemoteWebSocketClient
     private let callbackBridge: RemoteAppStoreCallbackBridge
     private var pendingTurnSubmission: PendingTurnSubmission?
+    private var allowedWorkspacePaths = Set<String>()
 
     public var connectionPhase: ConnectionPhase {
         state.connection.phase
@@ -184,6 +196,21 @@ public final class RemoteAppStore: RemoteAppStoreObservableObject {
     }
 
     @discardableResult
+    public func loadWorkspaces() async -> RemoteWorkspaceListResult? {
+        guard let result = await performRequest(.workspaceList) else {
+            allowedWorkspacePaths.removeAll()
+            return nil
+        }
+        guard let response = decodeResult(result, method: .workspaceList, as: WorkspaceListResponse.self) else {
+            allowedWorkspacePaths.removeAll()
+            return nil
+        }
+
+        allowedWorkspacePaths = Set(response.workspaces.map(\.path))
+        return RemoteWorkspaceListResult(workspaces: response.workspaces)
+    }
+
+    @discardableResult
     public func loadThread(_ threadID: String) async -> RemoteThread? {
         guard !threadID.isEmpty else {
             recordError(RemoteAppStoreError.invalidInput("线程 ID 不能为空"))
@@ -211,6 +238,10 @@ public final class RemoteAppStore: RemoteAppStoreObservableObject {
     public func createThread(cwd: String) async -> RemoteThread? {
         guard !cwd.isEmpty else {
             recordError(RemoteAppStoreError.invalidInput("工作目录不能为空"))
+            return nil
+        }
+        guard allowedWorkspacePaths.contains(cwd) else {
+            recordError(RemoteAppStoreError.workspaceNotAllowed)
             return nil
         }
 
@@ -378,6 +409,10 @@ public final class RemoteAppStore: RemoteAppStoreObservableObject {
 private struct ThreadListResponse: Codable {
     let threads: [RemoteThreadSummary]
     let nextCursor: String?
+}
+
+private struct WorkspaceListResponse: Codable {
+    let workspaces: [RemoteWorkspace]
 }
 
 private struct ThreadResponse: Codable {

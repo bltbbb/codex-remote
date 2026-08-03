@@ -442,6 +442,61 @@ public enum FixtureKind: String, Codable, Equatable {
     case turnFailed = "turn.failed"
 }
 
+public enum RemoteWorkspaceSource: Codable, Equatable {
+    case configured
+    case history
+    case unknown(String)
+
+    public init(from decoder: Decoder) throws {
+        self = Self(rawValue: try String(from: decoder))
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        try rawValue.encode(to: encoder)
+    }
+
+    public init(rawValue: String) {
+        switch rawValue {
+        case "configured":
+            self = .configured
+        case "history":
+            self = .history
+        default:
+            self = .unknown(rawValue)
+        }
+    }
+
+    public var rawValue: String {
+        switch self {
+        case .configured:
+            return "configured"
+        case .history:
+            return "history"
+        case let .unknown(value):
+            return value
+        }
+    }
+}
+
+public struct RemoteWorkspace: Codable, Equatable, Identifiable {
+    public let id: String
+    public let path: String
+    public let name: String
+    public let source: RemoteWorkspaceSource
+
+    public init(
+        id: String,
+        path: String,
+        name: String,
+        source: RemoteWorkspaceSource
+    ) {
+        self.id = id
+        self.path = path
+        self.name = name
+        self.source = source
+    }
+}
+
 public struct RemoteThreadSummary: Codable, Equatable {
     public var id: String
     public var sessionID: String

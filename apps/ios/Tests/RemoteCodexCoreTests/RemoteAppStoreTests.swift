@@ -49,6 +49,103 @@ final class RemoteAppStoreTests: XCTestCase {
         XCTAssertEqual(context.store.state.threadOrder, ["thread-search"])
     }
 
+    func testLoadWorkspacesReturnsEntriesAndWhitelistsPaths() async throws {
+        let context = makeStore()
+        try await connectAndResume(context)
+
+        let loadTask = Task {
+            await context.store.loadWorkspaces()
+        }
+        await waitUntil { self.requests(in: context, method: .workspaceList).count == 1 }
+        let request = try XCTUnwrap(requests(in: context, method: .workspaceList).first)
+        let workspace = makeWorkspace()
+
+        context.socket.emit(.response(ServerResponseEnvelope(
+            id: request.id,
+            ok: true,
+            result: .object(["workspaces": .array([try jsonValue(workspace)])])
+        )))
+        let result = await loadTask.value
+
+        XCTAssertEqual(result?.workspaces, [workspace])
+
+        let createTask = Task {
+            await context.store.createThread(cwd: workspace.path)
+        }
+        await waitUntil { self.requests(in: context, method: .threadCreate).count == 1 }
+        let createRequest = try XCTUnwrap(requests(in: context, method: .threadCreate).first)
+        XCTAssertEqual(createRequest.params.objectValue?["cwd"]?.stringValue, workspace.path)
+        context.socket.emit(.response(ServerResponseEnvelope(
+            id: createRequest.id,
+            ok: true,
+            result: .object(["thread": try jsonValue(makeThread(id: "thread-workspace"))])
+        )))
+
+        XCTAssertEqual((await createTask.value)?.id, "thread-workspace")
+    }
+
+    func testLoadWorkspacesAcceptsEmptyList() async throws {
+        let context = makeStore()
+        try await connectAndResume(context)
+
+        let loadTask = Task {
+            await context.store.loadWorkspaces()
+        }
+        await waitUntil { self.requests(in: context, method: .workspaceList).count == 1 }
+        let request = try XCTUnwrap(requests(in: context, method: .workspaceList).first)
+        context.socket.emit(.response(ServerResponseEnvelope(
+            id: request.id,
+            ok: true,
+            result: .object(["workspaces": .array([])])
+        )))
+
+        let result = await loadTask.value
+        XCTAssertEqual(result?.workspaces, [])
+        XCTAssertNil(context.store.state.lastError)
+    }
+
+    func testLoadWorkspacesRecordsFailure() async throws {
+        let context = makeStore()
+        try await connectAndResume(context)
+
+        let loadTask = Task {
+            await context.store.loadWorkspaces()
+        }
+        await waitUntil { self.requests(in: context, method: .workspaceList).count == 1 }
+        let request = try XCTUnwrap(requests(in: context, method: .workspaceList).first)
+        context.socket.emit(.response(ServerResponseEnvelope(
+            id: request.id,
+            ok: false,
+            error: ResponseError(code: "workspace_unavailable", message: "电脑工作区暂时不可用")
+        )))
+
+        XCTAssertNil(await loadTask.value)
+        XCTAssertEqual(context.store.state.lastError, "[workspace_unavailable] 电脑工作区暂时不可用")
+    }
+
+    func testCreateThreadRejectsPathOutsideLoadedWorkspace() async throws {
+        let context = makeStore()
+        try await connectAndResume(context)
+
+        let loadTask = Task {
+            await context.store.loadWorkspaces()
+        }
+        await waitUntil { self.requests(in: context, method: .workspaceList).count == 1 }
+        let request = try XCTUnwrap(requests(in: context, method: .workspaceList).first)
+        context.socket.emit(.response(ServerResponseEnvelope(
+            id: request.id,
+            ok: true,
+            result: .object(["workspaces": .array([try jsonValue(makeWorkspace())])])
+        )))
+        _ = await loadTask.value
+
+        let created = await context.store.createThread(cwd: "E:\\not-allowed")
+
+        XCTAssertNil(created)
+        XCTAssertTrue(requests(in: context, method: .threadCreate).isEmpty)
+        XCTAssertEqual(context.store.state.lastError, "该工作目录未在电脑端白名单中，请重新加载工作区")
+    }
+
     func testLoadThreadAcceptsLoadingAckWithoutRecordingError() async throws {
         let context = makeStore()
         try await connectAndResume(context)
@@ -103,12 +200,25 @@ final class RemoteAppStoreTests: XCTestCase {
         let interrupted = await interruptTask.value
         XCTAssertEqual(interrupted, true)
 
+        let workspaceLoadTask = Task {
+            await context.store.loadWorkspaces()
+        }
+        await waitUntil { self.requests(in: context, method: .workspaceList).count == 1 }
+        let workspaceRequest = try XCTUnwrap(requests(in: context, method: .workspaceList).first)
+        let workspace = makeWorkspace()
+        context.socket.emit(.response(ServerResponseEnvelope(
+            id: workspaceRequest.id,
+            ok: true,
+            result: .object(["workspaces": .array([try jsonValue(workspace)])])
+        )))
+        XCTAssertEqual((await workspaceLoadTask.value)?.workspaces, [workspace])
+
         let createTask = Task {
-            await context.store.createThread(cwd: "E:\\myproject\\codex-remote")
+            await context.store.createThread(cwd: workspace.path)
         }
         await waitUntil { self.requests(in: context, method: .threadCreate).count == 1 }
         let createRequest = try XCTUnwrap(requests(in: context, method: .threadCreate).first)
-        XCTAssertEqual(createRequest.params.objectValue?["cwd"]?.stringValue, "E:\\myproject\\codex-remote")
+        XCTAssertEqual(createRequest.params.objectValue?["cwd"]?.stringValue, workspace.path)
         let createdThread = makeThread(id: "thread-created")
         context.socket.emit(.response(ServerResponseEnvelope(
             id: createRequest.id,
@@ -261,6 +371,15 @@ final class RemoteAppStoreTests: XCTestCase {
             status: "idle",
             isPinned: false
         )
+    }
+
+    private func makeWorkspace(
+        id: String = "workspace:codex-remote",
+        path: String = "E:\\myproject\\codex-remote",
+        name: String = "codex-remote",
+        source: RemoteWorkspaceSource = .configured
+    ) -> RemoteWorkspace {
+        RemoteWorkspace(id: id, path: path, name: name, source: source)
     }
 
     private func makeThread(id: String = "thread-a") -> RemoteThread {
