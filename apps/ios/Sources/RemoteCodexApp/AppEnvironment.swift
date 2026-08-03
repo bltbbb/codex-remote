@@ -11,9 +11,9 @@ final class AppEnvironment: ObservableObject {
         store.state
     }
 
-    init(store: RemoteAppStore = AppEnvironment.makeDefaultStore()) {
-        self.store = store
-        store.objectWillChange
+    init(store: RemoteAppStore? = nil) {
+        self.store = store ?? AppEnvironment.makeDefaultStore()
+        self.store.objectWillChange
             .sink { [weak self] _ in
                 Task { @MainActor in
                     self?.objectWillChange.send()
