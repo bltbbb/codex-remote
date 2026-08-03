@@ -81,7 +81,8 @@ final class RemoteAppStoreTests: XCTestCase {
             result: .object(["thread": try jsonValue(makeThread(id: "thread-workspace"))])
         )))
 
-        XCTAssertEqual((await createTask.value)?.id, "thread-workspace")
+        let created = await createTask.value
+        XCTAssertEqual(created?.id, "thread-workspace")
     }
 
     func testLoadWorkspacesAcceptsEmptyList() async throws {
@@ -119,7 +120,8 @@ final class RemoteAppStoreTests: XCTestCase {
             error: ResponseError(code: "workspace_unavailable", message: "电脑工作区暂时不可用")
         )))
 
-        XCTAssertNil(await loadTask.value)
+        let result = await loadTask.value
+        XCTAssertNil(result)
         XCTAssertEqual(context.store.state.lastError, "[workspace_unavailable] 电脑工作区暂时不可用")
     }
 
@@ -211,7 +213,8 @@ final class RemoteAppStoreTests: XCTestCase {
             ok: true,
             result: .object(["workspaces": .array([try jsonValue(workspace)])])
         )))
-        XCTAssertEqual((await workspaceLoadTask.value)?.workspaces, [workspace])
+        let workspaces = await workspaceLoadTask.value
+        XCTAssertEqual(workspaces?.workspaces, [workspace])
 
         let createTask = Task {
             await context.store.createThread(cwd: workspace.path)
