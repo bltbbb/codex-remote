@@ -101,6 +101,35 @@ final class RemotePairingTests: XCTestCase {
         }
     }
 
+    func testPairingClientRejectsMalformedSuccessResponse() async throws {
+        PairingURLProtocol.handler = { request in
+            let response = HTTPURLResponse(
+                url: try XCTUnwrap(request.url),
+                statusCode: 200,
+                httpVersion: nil,
+                headerFields: nil
+            )!
+            return (response, Data("{\"device\":{},\"token\":7}".utf8))
+        }
+        defer { PairingURLProtocol.handler = nil }
+
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [PairingURLProtocol.self]
+        let client = RemotePairingClient(
+            pairingURL: URL(string: "http://bridge.example/api/pairing/complete")!,
+            session: URLSession(configuration: configuration)
+        )
+
+        do {
+            _ = try await client.completePairing(code: "123456", name: "测试手机")
+            XCTFail("格式错误的成功响应应被拒绝")
+        } catch let error as RemotePairingError {
+            guard case .invalidResponse = error else {
+                return XCTFail("应返回 invalidResponse，实际为 \(error)")
+            }
+        }
+    }
+
     func testPairingClientRejectsInvalidInput() async throws {
         let client = RemotePairingClient(
             pairingURL: URL(string: "http://bridge.example/api/pairing/complete")!

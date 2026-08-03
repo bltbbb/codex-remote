@@ -1,11 +1,17 @@
 import RemoteCodexCore
+import PhotosUI
 import SwiftUI
+import UniformTypeIdentifiers
 
 struct ThreadDetailView: View {
     @ObservedObject var store: RemoteAppStore
     @Binding var messageDraft: String
     @State private var isSending = false
     @State private var isStopping = false
+    @State private var isPreparingAttachment = false
+    @State private var selectedPhotoItems: [PhotosPickerItem] = []
+    @State private var attachments: [RemoteAttachment] = []
+    @State private var attachmentErrorMessage: String?
 
     var body: some View {
         Group {
@@ -34,11 +40,33 @@ struct ThreadDetailView: View {
         .safeAreaInset(edge: .bottom) {
             ComposerView(
                 text: $messageDraft,
+                attachments: $attachments,
+                photoItems: $selectedPhotoItems,
                 isSending: isSending,
+                isPreparingAttachment: isPreparingAttachment,
                 isEnabled: store.currentThread != nil && store.connectionPhase == .online,
-                send: sendMessage
+                send: sendMessage,
+                importFiles: importFiles
             )
             .background(.regularMaterial)
+        }
+        .onChange(of: selectedPhotoItems) { items in
+            guard !items.isEmpty else { return }
+            Task {
+                await importPhotos(items)
+            }
+        }
+        .alert("附件无法添加", isPresented: Binding(
+            get: { attachmentErrorMessage != nil },
+            set: { isPresented in
+                if !isPresented {
+                    attachmentErrorMessage = nil
+                }
+            }
+        )) {
+            Button("确定", role: .cancel) {}
+        } message: {
+            Text(attachmentErrorMessage ?? "附件读取失败")
         }
     }
 
@@ -57,15 +85,78 @@ struct ThreadDetailView: View {
 
     private func sendMessage() {
         let text = messageDraft
-        guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
+        let outgoingAttachments = attachments
+        guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !outgoingAttachments.isEmpty else {
+            return
+        }
 
         isSending = true
         Task {
-            let result = await store.sendTurn(text: text)
+            let result = await store.sendTurn(text: text, attachments: outgoingAttachments)
             if result != nil {
                 messageDraft = ""
+                attachments.removeAll()
+                selectedPhotoItems.removeAll()
             }
             isSending = false
+        }
+    }
+
+    private func importPhotos(_ items: [PhotosPickerItem]) async {
+        selectedPhotoItems.removeAll()
+        isPreparingAttachment = true
+        defer { isPreparingAttachment = false }
+
+        for item in items {
+            guard attachments.count < AttachmentRules.maximumCount else {
+                attachmentErrorMessage = AttachmentRules.maximumCountMessage
+                return
+            }
+
+            do {
+                guard let data = try await item.loadTransferable(type: Data.self) else {
+                    throw AttachmentImportError.unreadable
+                }
+                let contentType = item.supportedContentTypes.first ?? .jpeg
+                attachments.append(
+                    try AttachmentRules.makeDataAttachment(
+                        data: data,
+                        name: AttachmentRules.photoName(for: contentType),
+                        contentType: contentType,
+                        kind: .image
+                    )
+                )
+            } catch {
+                attachmentErrorMessage = error.localizedDescription
+                return
+            }
+        }
+    }
+
+    private func importFiles(_ result: Result<[URL], Error>) {
+        switch result {
+        case let .failure(error):
+            attachmentErrorMessage = error.localizedDescription
+        case let .success(urls):
+            guard !urls.isEmpty else { return }
+            Task {
+                isPreparingAttachment = true
+                defer { isPreparingAttachment = false }
+
+                for url in urls {
+                    guard attachments.count < AttachmentRules.maximumCount else {
+                        attachmentErrorMessage = AttachmentRules.maximumCountMessage
+                        return
+                    }
+
+                    do {
+                        attachments.append(try AttachmentRules.makeFileAttachment(from: url))
+                    } catch {
+                        attachmentErrorMessage = error.localizedDescription
+                        return
+                    }
+                }
+            }
         }
     }
 }
@@ -344,43 +435,227 @@ private struct ApprovalCardView: View {
 
 private struct ComposerView: View {
     @Binding var text: String
+    @Binding var attachments: [RemoteAttachment]
+    @Binding var photoItems: [PhotosPickerItem]
+    @State private var showingFileImporter = false
     let isSending: Bool
+    let isPreparingAttachment: Bool
     let isEnabled: Bool
     let send: () -> Void
+    let importFiles: (Result<[URL], Error>) -> Void
 
     var body: some View {
-        HStack(alignment: .bottom, spacing: 8) {
-            TextEditor(text: $text)
-                .frame(minHeight: 38, maxHeight: 100)
-                .padding(4)
-                .overlay(
-                    RoundedRectangle(cornerRadius: 7)
-                        .stroke(Color.secondary.opacity(0.35), lineWidth: 1)
-                )
-                .overlay(alignment: .topLeading) {
-                    if text.isEmpty {
-                        Text("输入消息...")
-                            .foregroundColor(.secondary)
-                            .padding(.horizontal, 9)
-                            .padding(.vertical, 11)
-                            .allowsHitTesting(false)
+        VStack(alignment: .leading, spacing: 8) {
+            if !attachments.isEmpty {
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 8) {
+                        ForEach(attachments, id: \.id) { attachment in
+                            AttachmentChipView(
+                                attachment: attachment,
+                                remove: {
+                                    attachments.removeAll { $0.id == attachment.id }
+                                }
+                            )
+                        }
                     }
-                }
-
-            Button(action: send) {
-                if isSending {
-                    ProgressView()
-                        .controlSize(.small)
-                } else {
-                    Image(systemName: "paperplane.fill")
+                    .padding(.horizontal, 2)
                 }
             }
-            .buttonStyle(.borderedProminent)
-            .accessibilityLabel("发送消息")
-            .disabled(!isEnabled || isSending || text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+
+            HStack(alignment: .bottom, spacing: 8) {
+                PhotosPicker(
+                    selection: $photoItems,
+                    maxSelectionCount: max(1, AttachmentRules.maximumCount - attachments.count),
+                    matching: .images
+                ) {
+                    Image(systemName: "photo")
+                }
+                .accessibilityLabel("添加照片")
+                .disabled(!isEnabled || isSending || isPreparingAttachment || attachments.count >= AttachmentRules.maximumCount)
+
+                Button {
+                    showingFileImporter = true
+                } label: {
+                    Image(systemName: "paperclip")
+                }
+                .accessibilityLabel("添加文件")
+                .disabled(!isEnabled || isSending || isPreparingAttachment || attachments.count >= AttachmentRules.maximumCount)
+                .fileImporter(
+                    isPresented: $showingFileImporter,
+                    allowedContentTypes: [.item],
+                    allowsMultipleSelection: true,
+                    onCompletion: importFiles
+                )
+
+                TextEditor(text: $text)
+                    .frame(minHeight: 38, maxHeight: 100)
+                    .padding(4)
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 7)
+                            .stroke(Color.secondary.opacity(0.35), lineWidth: 1)
+                    )
+                    .overlay(alignment: .topLeading) {
+                        if text.isEmpty {
+                            Text("输入消息...")
+                                .foregroundColor(.secondary)
+                                .padding(.horizontal, 9)
+                                .padding(.vertical, 11)
+                                .allowsHitTesting(false)
+                        }
+                    }
+
+                Button(action: send) {
+                    if isSending || isPreparingAttachment {
+                        ProgressView()
+                            .controlSize(.small)
+                    } else {
+                        Image(systemName: "paperplane.fill")
+                    }
+                }
+                .buttonStyle(.borderedProminent)
+                .accessibilityLabel("发送消息")
+                .disabled(
+                    !isEnabled ||
+                    isSending ||
+                    isPreparingAttachment ||
+                    (text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && attachments.isEmpty)
+                )
+            }
         }
         .padding(.horizontal)
         .padding(.vertical, 8)
+    }
+}
+
+private struct AttachmentChipView: View {
+    let attachment: RemoteAttachment
+    let remove: () -> Void
+
+    var body: some View {
+        HStack(spacing: 6) {
+            Image(systemName: attachment.systemImage)
+                .foregroundColor(.accentColor)
+            VStack(alignment: .leading, spacing: 1) {
+                Text(attachment.name)
+                    .font(.caption)
+                    .lineLimit(1)
+                Text(attachment.sizeLabel)
+                    .font(.caption2)
+                    .foregroundColor(.secondary)
+            }
+            Button(action: remove) {
+                Image(systemName: "xmark.circle.fill")
+                    .foregroundColor(.secondary)
+            }
+            .buttonStyle(.borderless)
+            .accessibilityLabel("移除附件 \(attachment.name)")
+        }
+        .padding(.horizontal, 8)
+        .padding(.vertical, 6)
+        .background(Color(.secondarySystemBackground))
+        .cornerRadius(7)
+    }
+}
+
+private enum AttachmentRules {
+    static let maximumCount = 4
+    static let maximumBytes: Int64 = 10 * 1024 * 1024
+    static let maximumTextCharacters = 200_000
+    static let maximumCountMessage = "最多添加 4 个附件"
+
+    static func makeDataAttachment(
+        data: Data,
+        name: String,
+        contentType: UTType,
+        kind: RemoteAttachmentKind
+    ) throws -> RemoteAttachment {
+        guard Int64(data.count) <= maximumBytes else {
+            throw AttachmentImportError.tooLarge
+        }
+
+        let mimeType = contentType.preferredMIMEType ?? "application/octet-stream"
+        return RemoteAttachment(
+            id: UUID().uuidString,
+            name: name,
+            mimeType: mimeType,
+            size: Int64(data.count),
+            kind: kind,
+            dataURL: "data:\(mimeType);base64,\(data.base64EncodedString())"
+        )
+    }
+
+    static func makeFileAttachment(from url: URL) throws -> RemoteAttachment {
+        let didAccess = url.startAccessingSecurityScopedResource()
+        defer {
+            if didAccess {
+                url.stopAccessingSecurityScopedResource()
+            }
+        }
+
+        let values = try url.resourceValues(forKeys: [.contentTypeKey, .fileSizeKey])
+        let contentType = values.contentType ?? .data
+        if let fileSize = values.fileSize, Int64(fileSize) > maximumBytes {
+            throw AttachmentImportError.tooLarge
+        }
+        let data = try Data(contentsOf: url, options: .mappedIfSafe)
+        let name = url.lastPathComponent.isEmpty ? "附件" : url.lastPathComponent
+        let mimeType = contentType.preferredMIMEType ?? "application/octet-stream"
+
+        if contentType.conforms(to: .image) {
+            return try makeDataAttachment(data: data, name: name, contentType: contentType, kind: .image)
+        }
+        if contentType.conforms(to: .audio) {
+            return try makeDataAttachment(data: data, name: name, contentType: contentType, kind: .audio)
+        }
+
+        guard Int64(data.count) <= maximumBytes else {
+            throw AttachmentImportError.tooLarge
+        }
+        let text = String(data: data, encoding: .utf8).map { String($0.prefix(maximumTextCharacters)) }
+        return RemoteAttachment(
+            id: UUID().uuidString,
+            name: name,
+            mimeType: mimeType,
+            size: Int64(data.count),
+            kind: .file,
+            text: text
+        )
+    }
+
+    static func photoName(for contentType: UTType) -> String {
+        let extensionName = contentType.preferredFilenameExtension ?? "jpg"
+        return "照片.\(extensionName)"
+    }
+}
+
+private enum AttachmentImportError: Error, LocalizedError {
+    case unreadable
+    case tooLarge
+
+    var errorDescription: String? {
+        switch self {
+        case .unreadable:
+            return "无法读取所选附件"
+        case .tooLarge:
+            return "单个附件不能超过 10 MB"
+        }
+    }
+}
+
+private extension RemoteAttachment {
+    var systemImage: String {
+        switch kind {
+        case .image:
+            return "photo"
+        case .audio:
+            return "waveform"
+        case .file, .unknown(_):
+            return "doc"
+        }
+    }
+
+    var sizeLabel: String {
+        ByteCountFormatter.string(fromByteCount: size, countStyle: .file)
     }
 }
 

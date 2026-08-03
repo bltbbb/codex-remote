@@ -276,6 +276,45 @@ final class RemoteAppStoreTests: XCTestCase {
         XCTAssertEqual(context.store.state.threads[thread.id]?.turnIDs, ["turn-send"])
     }
 
+    func testSendTurnSupportsAttachmentOnlyMessages() async throws {
+        var state = RemoteReducer.createInitialState()
+        let thread = makeThread(id: "thread-attachment")
+        state = RemoteReducer.mergeThread(thread, into: state)
+        state = RemoteReducer.setActiveThread(state, threadID: thread.id)
+        let context = makeStore(initialState: state)
+        try await connectAndResume(context)
+
+        let attachment = RemoteAttachment(
+            id: "attachment-1",
+            name: "说明.txt",
+            mimeType: "text/plain",
+            size: 6,
+            kind: .file,
+            text: "你好"
+        )
+        let sendTask = Task {
+            await context.store.sendTurn(text: " ", attachments: [attachment])
+        }
+        await waitUntil { self.requests(in: context, method: .turnStart).count == 1 }
+        let request = try XCTUnwrap(requests(in: context, method: .turnStart).first)
+        let parameters = try XCTUnwrap(request.turnStartParameters)
+
+        XCTAssertEqual(parameters.threadID, thread.id)
+        XCTAssertEqual(parameters.text, " ")
+        XCTAssertEqual(parameters.attachments, [attachment])
+
+        context.socket.emit(.response(ServerResponseEnvelope(
+            id: request.id,
+            ok: true,
+            result: .object([
+                "turn": try jsonValue(RemoteTurn(id: "turn-attachment", status: .inProgress))
+            ])
+        )))
+        let started = await sendTask.value
+
+        XCTAssertEqual(started?.id, "turn-attachment")
+    }
+
     func testResolveApprovalRemovesApprovalFromState() async throws {
         let approval = ApprovalRequest(
             id: "approval-1",
