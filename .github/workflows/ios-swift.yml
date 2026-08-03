@@ -134,8 +134,17 @@ jobs:
             CODE_SIGNING_REQUIRED=NO \
             CODE_SIGN_IDENTITY=""
 
-          app_path="../../artifacts/xcode-device-derived-data/Build/Products/Release-iphoneos/RemoteCodexApp.app"
-          test -d "$app_path"
+          product_path="../../artifacts/xcode-device-derived-data/Build/Products/Release-iphoneos/RemoteCodexApp"
+          test -f "$product_path"
+
+          staging="../../artifacts/unsigned-ipa"
+          rm -rf "$staging"
+          mkdir -p "$staging/Payload/RemoteCodexApp.app"
+          app_path="$staging/Payload/RemoteCodexApp.app"
+          cp "$product_path" "$app_path/RemoteCodexApp"
+          cp Info.plist "$app_path/Info.plist"
+          chmod +x "$app_path/RemoteCodexApp"
+
           executable="$(
             /usr/libexec/PlistBuddy \
               -c "Print :CFBundleExecutable" \
@@ -148,14 +157,13 @@ jobs:
           )"
           test -n "$executable"
           test -n "$bundle_id"
+          test -f "$app_path/$executable"
+          /usr/libexec/PlistBuddy -c "Print :CFBundlePackageType" "$app_path/Info.plist" | grep -qx APPL
+          plutil -lint "$app_path/Info.plist"
           echo "Bundle ID：$bundle_id"
           echo "可执行文件：$executable"
           xcrun lipo -info "$app_path/$executable"
 
-          staging="../../artifacts/unsigned-ipa"
-          rm -rf "$staging"
-          mkdir -p "$staging/Payload"
-          cp -R "$app_path" "$staging/Payload/"
           (
             cd "$staging"
             zip -qry RemoteCodexApp.ipa Payload
