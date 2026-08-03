@@ -34,7 +34,7 @@ final class RemoteAppStoreTests: XCTestCase {
         let loadTask = Task {
             await context.store.loadThreads(limit: 25, searchTerm: "搜索", cursor: "cursor-1")
         }
-        await waitUntil { requests(in: context, method: .threadList).count == 1 }
+        await waitUntil { self.requests(in: context, method: .threadList).count == 1 }
         let request = try XCTUnwrap(requests(in: context, method: .threadList).first)
 
         XCTAssertEqual(request.params.objectValue?["limit"]?.intValue, 25)
@@ -56,7 +56,7 @@ final class RemoteAppStoreTests: XCTestCase {
         let loadTask = Task {
             await context.store.loadThread("thread-loading")
         }
-        await waitUntil { requests(in: context, method: .threadRead).count == 1 }
+        await waitUntil { self.requests(in: context, method: .threadRead).count == 1 }
         let request = try XCTUnwrap(requests(in: context, method: .threadRead).first)
 
         context.socket.emit(.response(ServerResponseEnvelope(
@@ -91,7 +91,7 @@ final class RemoteAppStoreTests: XCTestCase {
         let interruptTask = Task {
             await context.store.interruptCurrentTurn()
         }
-        await waitUntil { requests(in: context, method: .turnInterrupt).count == 1 }
+        await waitUntil { self.requests(in: context, method: .turnInterrupt).count == 1 }
         let interruptRequest = try XCTUnwrap(requests(in: context, method: .turnInterrupt).first)
         XCTAssertEqual(interruptRequest.params.objectValue?["threadId"]?.stringValue, "thread-active")
         XCTAssertEqual(interruptRequest.params.objectValue?["turnId"]?.stringValue, "turn-active")
@@ -106,7 +106,7 @@ final class RemoteAppStoreTests: XCTestCase {
         let createTask = Task {
             await context.store.createThread(cwd: "E:\\myproject\\codex-remote")
         }
-        await waitUntil { requests(in: context, method: .threadCreate).count == 1 }
+        await waitUntil { self.requests(in: context, method: .threadCreate).count == 1 }
         let createRequest = try XCTUnwrap(requests(in: context, method: .threadCreate).first)
         XCTAssertEqual(createRequest.params.objectValue?["cwd"]?.stringValue, "E:\\myproject\\codex-remote")
         let createdThread = makeThread(id: "thread-created")
@@ -131,7 +131,7 @@ final class RemoteAppStoreTests: XCTestCase {
         let firstTask = Task {
             await context.store.sendTurn(text: "继续")
         }
-        await waitUntil { requests(in: context, method: .turnStart).count == 1 }
+        await waitUntil { self.requests(in: context, method: .turnStart).count == 1 }
         let firstRequest = try XCTUnwrap(requests(in: context, method: .turnStart).first)
         let firstClientRequestID = try XCTUnwrap(firstRequest.params.objectValue?["clientRequestId"]?.stringValue)
 
@@ -147,7 +147,7 @@ final class RemoteAppStoreTests: XCTestCase {
         let secondTask = Task {
             await context.store.sendTurn(text: "继续")
         }
-        await waitUntil { requests(in: context, method: .turnStart).count == 2 }
+        await waitUntil { self.requests(in: context, method: .turnStart).count == 2 }
         let secondRequest = try XCTUnwrap(requests(in: context, method: .turnStart).last)
         XCTAssertEqual(secondRequest.params.objectValue?["clientRequestId"]?.stringValue, firstClientRequestID)
 
@@ -182,7 +182,7 @@ final class RemoteAppStoreTests: XCTestCase {
         let resolveTask = Task {
             await context.store.resolveApproval(approval.id, decision: "accept")
         }
-        await waitUntil { requests(in: context, method: .approvalResolve).count == 1 }
+        await waitUntil { self.requests(in: context, method: .approvalResolve).count == 1 }
         let request = try XCTUnwrap(requests(in: context, method: .approvalResolve).first)
 
         context.socket.emit(.response(ServerResponseEnvelope(
@@ -217,7 +217,7 @@ final class RemoteAppStoreTests: XCTestCase {
 
     private func connectAndResume(_ context: StoreTestContext) async throws {
         await context.store.connect()
-        await waitUntil { requests(in: context, method: .eventsResume).count == 1 }
+        await waitUntil { self.requests(in: context, method: .eventsResume).count == 1 }
         let request = try XCTUnwrap(requests(in: context, method: .eventsResume).first)
         context.socket.emit(.response(ServerResponseEnvelope(
             id: request.id,
