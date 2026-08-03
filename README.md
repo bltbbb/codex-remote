@@ -2,7 +2,7 @@
 
 Codex Remote 是面向 Windows Codex Desktop 的远程客户端。阶段 4 使用外置 Native Host 接管 Desktop 原有的 stdio 启动入口，把 Desktop 和手机 Bridge 接到同一个真实 `codex app-server`；模型请求、工具执行及文件访问仍发生在电脑上。
 
-阶段 0～3 与阶段 6 已完成，阶段 4～5 的主要远程链路和安全基线已经落地；阶段 7 开始迁移正式手机 UI 到原生 SwiftUI：
+阶段 0～3 与阶段 6 已完成，阶段 4～5 的主要远程链路和安全基线已经落地；阶段 7 正在迁移正式手机 UI 到原生 SwiftUI：
 
 1. 当前 Codex Desktop 版本和协议勘探。
 2. 共享远程协议、状态机、脱敏夹具与故障模拟器。
@@ -166,7 +166,7 @@ iOS Safari 进入后台后可能暂停 WebSocket。页面返回前台时会快�
 - 阶段 4 将同实例 Native Host 提前为硬性验收条件，并使用 Cloudflare Tunnel 提供无需手机 VPN 的 HTTPS/WSS 入口；Tailscale 只保留诊断回退。
 - Cloudflare 会终止公网 TLS；当前设备令牌、防重放事件序号和回环隔离不等于应用层端到端加密。只有需要 Cloudflare 也无法读取会话内容时，才继续实现自建 Relay 或密文帧协议。
 - 完整 Web 交互一致性属于阶段 6；阶段 7 开始建立原生 SwiftUI 客户端，版本门禁和兼容性加固并入阶段 8。
-- 阶段 7～8 完成 SwiftUI 客户端、协议一致性、性能、兼容性和 CI；GitHub Actions IPA 打包及 TrollStore 真机验收统一放在最后的阶段 9。原生迁移细节见 `docs/native-ios-plan.md`。
+- 阶段 7～8 完成 SwiftUI 客户端、协议一致性、性能、兼容性和 CI；GitHub Actions IPA 打包及 TrollStore 真机验收统一放在最后的阶段 9。阶段 7 当前已完成协议、WebSocket、配对、Keychain 和基础线程页面，后续继续补齐附件、工作区选择、性能与真机验收。原生迁移细节见 `docs/native-ios-plan.md`。
 
 `work/`、测试结果和构建目录均为本机可再生产物，不进入版本库。
 

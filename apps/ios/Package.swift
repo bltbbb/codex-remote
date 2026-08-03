@@ -12,7 +12,12 @@ let package = Package(
         .executable(name: "RemoteCodexApp", targets: ["RemoteCodexApp"])
     ],
     targets: [
-        .target(name: "RemoteCodexCore"),
+        .target(
+            name: "RemoteCodexCore",
+            linkerSettings: [
+                .linkedFramework("Security", condition: .when(platforms: [.iOS, .macOS]))
+            ]
+        ),
         .executableTarget(name: "RemoteCodexApp", dependencies: ["RemoteCodexCore"]),
         .testTarget(name: "RemoteCodexCoreTests", dependencies: ["RemoteCodexCore"])
     ]

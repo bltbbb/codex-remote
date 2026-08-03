@@ -3,6 +3,29 @@ import SwiftUI
 
 struct RootView: View {
     @ObservedObject var environment: AppEnvironment
+
+    var body: some View {
+        Group {
+            if environment.isPaired {
+                ConnectedRootView(environment: environment)
+            } else {
+                PairingView(environment: environment)
+            }
+        }
+        .safeAreaInset(edge: .top) {
+            if let message = environment.setupErrorMessage {
+                ErrorBannerView(message: message) {
+                    environment.clearSetupError()
+                }
+                .padding(.horizontal)
+                .padding(.top, 8)
+            }
+        }
+    }
+}
+
+private struct ConnectedRootView: View {
+    @ObservedObject var environment: AppEnvironment
     @State private var selectedThreadID: String?
     @State private var messageDraft = ""
     @State private var isRefreshing = false
@@ -13,7 +36,9 @@ struct RootView: View {
                 store: environment.store,
                 selectedThreadID: $selectedThreadID,
                 isRefreshing: $isRefreshing,
-                refreshThreads: refreshThreads
+                refreshThreads: refreshThreads,
+                pairedDeviceName: environment.pairedDeviceName ?? "当前设备",
+                forgetPairing: environment.forgetPairing
             )
         } detail: {
             ThreadDetailView(

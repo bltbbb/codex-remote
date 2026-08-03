@@ -6,8 +6,11 @@ struct ThreadSidebarView: View {
     @Binding var selectedThreadID: String?
     @Binding var isRefreshing: Bool
     let refreshThreads: () async -> Void
+    let pairedDeviceName: String
+    let forgetPairing: () async -> Void
     @State private var isCreating = false
     @State private var showingCreateThread = false
+    @State private var showingPairingSettings = false
     @State private var newThreadCWD = ""
 
     var body: some View {
@@ -39,6 +42,20 @@ struct ThreadSidebarView: View {
                             .controlSize(.small)
                     }
                 }
+
+                Button {
+                    showingPairingSettings = true
+                } label: {
+                    HStack(spacing: 8) {
+                        Label("配对设置", systemImage: "person.badge.key")
+                        Spacer(minLength: 8)
+                        Text(pairedDeviceName)
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                            .lineLimit(1)
+                    }
+                }
+                .buttonStyle(.borderless)
             }
 
             Section("线程") {
@@ -81,6 +98,20 @@ struct ThreadSidebarView: View {
             Button("取消", role: .cancel) {}
         } message: {
             Text("输入电脑上已允许的工作目录")
+        }
+        .confirmationDialog(
+            "配对设置",
+            isPresented: $showingPairingSettings,
+            titleVisibility: .visible
+        ) {
+            Button("清除本机配对", role: .destructive) {
+                Task {
+                    await forgetPairing()
+                }
+            }
+            Button("取消", role: .cancel) {}
+        } message: {
+            Text("清除后需要重新输入电脑端生成的配对码")
         }
     }
 
