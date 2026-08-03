@@ -31,7 +31,7 @@ final class AppEnvironment: ObservableObject {
 
     private static let endpointDefaultsKey = "remote-codex.websocket-url"
     private static let deviceNameDefaultsKey = "remote-codex.device-name"
-    private static let defaultEndpointURL = URL(string: "ws://127.0.0.1:18787/ws")!
+    private static let defaultEndpointURL = URL(string: "wss://codex-remote.bltbbbego.store/ws")!
 
     var state: RemoteState {
         store.state
@@ -88,6 +88,9 @@ final class AppEnvironment: ObservableObject {
     func forgetPairing() async {
         do {
             try credentialStore.deleteToken()
+            defaults.removeObject(forKey: Self.endpointDefaultsKey)
+            endpoint = RemoteWebSocketEndpoint(url: Self.defaultEndpointURL)
+            endpointText = endpoint.url.absoluteString
             await replaceStore(endpoint: endpoint, token: nil)
             defaults.removeObject(forKey: Self.deviceNameDefaultsKey)
             pairedDeviceName = nil

@@ -12,4 +12,4 @@
 
 没有本地 Mac 时，使用 `.github/workflows/ios-swift.yml` 在 GitHub Actions 的 macOS runner 上验证 Swift：workflow 会启动 `packages/protocol-mock`，编译 `RemoteCodexApp`、编译 `RemoteCodexCore` XCTest，并在可用 iPhone 模拟器上运行单测和真实 WebSocket 纵向链路测试；随后使用 `generic/platform=iOS` 构建 Release arm64 可执行文件，结合 `Info.plist` 组装为无签名 `.app` 和 IPA，检查 Bundle ID、应用包结构和设备架构，并上传 `RemoteCodexApp-unsigned-ipa` artifact，可用于 TrollStore 验收。配对客户端同时覆盖成功响应、HTTP 失败、输入校验和格式错误响应；真机网络与系统行为仍需在实际 iPhone/Bridge 环境执行。本地未设置 `REMOTE_CODEX_E2E=1` 时，端到端测试会跳过；Windows 仍可继续跑 `pnpm typecheck` 和 `pnpm test` 做协议、Web、Bridge 侧回归。
 
-`RemoteCodexApp` 已接入第一版 SwiftUI 页面：侧栏展示连接状态、刷新按钮、线程列表和配对设置；详情页按回合和 item 展示实时时间线，底部提供消息输入、发送和停止操作，当前线程的审批请求提供可用决策按钮，错误提示可直接清除。连接成功后页面自动加载线程，默认 endpoint 仍为 `ws://127.0.0.1:18787/ws`；页面只使用 iOS 16 / Swift 5.7 可用的 SwiftUI API。
+`RemoteCodexApp` 已接入第一版 SwiftUI 页面：侧栏展示连接状态、刷新按钮、线程列表和配对设置；详情页按回合和 item 展示实时时间线，底部提供消息输入、发送和停止操作，当前线程的审批请求提供可用决策按钮，错误提示可直接清除。连接成功后页面自动加载线程，默认 endpoint 为 `wss://codex-remote.bltbbbego.store/ws`；页面只使用 iOS 16 / Swift 5.7 可用的 SwiftUI API。
