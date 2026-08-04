@@ -197,7 +197,18 @@ public enum RemoteReducer {
     /// 将请求响应里的完整线程合并进状态；它不伪造远程事件序号。
     public static func mergeThread(_ thread: RemoteThread, into current: RemoteState) -> RemoteState {
         var next = current
-        next.threads[thread.id] = mergedThread(snapshot: thread, existing: next.threads[thread.id])
+        let merged = mergedThread(snapshot: thread, existing: next.threads[thread.id])
+        next.threads[thread.id] = merged
+        for turnID in merged.turnIDs {
+            guard let turn = merged.turns[turnID] else { continue }
+            if isTerminal(turn.status) {
+                if next.manualExpansion[turnID] == nil {
+                    next.processExpanded[turnID] = false
+                }
+            } else {
+                next.processExpanded[turnID] = true
+            }
+        }
         if !next.threadOrder.contains(thread.id) {
             next.threadOrder.insert(thread.id, at: 0)
         }

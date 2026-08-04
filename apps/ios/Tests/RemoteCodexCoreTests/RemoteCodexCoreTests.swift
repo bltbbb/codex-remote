@@ -233,6 +233,8 @@ final class RemoteCodexCoreTests: XCTestCase {
 
         XCTAssertEqual(state.threads["thread-race"]?.turnIDs, ["turn-old", "turn-live"])
         XCTAssertEqual(state.threads["thread-race"]?.items["item-live"]?.text, "刚刚发送的消息")
+        XCTAssertEqual(state.processExpanded["turn-old"], false)
+        XCTAssertEqual(state.processExpanded["turn-live"], true)
     }
 
     func testThreadSnapshotDoesNotShortenStreamingItem() {

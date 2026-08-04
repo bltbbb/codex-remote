@@ -229,6 +229,7 @@ private struct ThreadTimelineView: View {
     @State private var followsLatest = true
     @State private var isUserDragging = false
     @State private var initialScrollCompleted = false
+    @State private var scrollTask: Task<Void, Never>?
 
     private let bottomAnchorID = "thread-timeline-bottom"
     private let scrollCoordinateSpace = "thread-timeline-scroll"
@@ -260,7 +261,7 @@ private struct ThreadTimelineView: View {
                         } else {
                             ForEach(thread.turnIDs, id: \.self) { turnID in
                                 if let turn = thread.turns[turnID] {
-                                    TurnTimelineView(thread: thread, turn: turn)
+                                    TurnTimelineView(store: store, thread: thread, turn: turn)
                                 }
                             }
                         }
@@ -285,6 +286,8 @@ private struct ThreadTimelineView: View {
                 .simultaneousGesture(
                     DragGesture(minimumDistance: 4)
                         .onChanged { _ in
+                            scrollTask?.cancel()
+                            scrollTask = nil
                             isUserDragging = true
                             if !isAtBottom {
                                 followsLatest = false
@@ -315,6 +318,10 @@ private struct ThreadTimelineView: View {
                     guard followsLatest else { return }
                     scrollToLatest(using: scrollProxy, animated: false)
                 }
+                .onDisappear {
+                    scrollTask?.cancel()
+                    scrollTask = nil
+                }
                 .overlay(alignment: .bottomTrailing) {
                     if initialScrollCompleted && !isAtBottom {
                         Button {
@@ -334,17 +341,26 @@ private struct ThreadTimelineView: View {
     }
 
     private func scrollToLatest(using proxy: ScrollViewProxy, animated: Bool) {
-        DispatchQueue.main.async {
-            if animated {
-                withAnimation(.easeOut(duration: 0.2)) {
+        scrollTask?.cancel()
+        scrollTask = Task { @MainActor in
+            let delays: [UInt64] = [0, 60_000_000, 180_000_000, 420_000_000]
+            for (index, delay) in delays.enumerated() {
+                if delay > 0 {
+                    try? await Task<Never, Never>.sleep(nanoseconds: delay)
+                }
+                guard !Task<Never, Never>.isCancelled else { return }
+                if animated && index == 0 {
+                    withAnimation(.easeOut(duration: 0.2)) {
+                        proxy.scrollTo(bottomAnchorID, anchor: .bottom)
+                    }
+                } else {
                     proxy.scrollTo(bottomAnchorID, anchor: .bottom)
                 }
-            } else {
-                proxy.scrollTo(bottomAnchorID, anchor: .bottom)
+                initialScrollCompleted = true
+                isAtBottom = true
+                followsLatest = true
             }
-            initialScrollCompleted = true
-            isAtBottom = true
-            followsLatest = true
+            scrollTask = nil
         }
     }
 }
@@ -391,21 +407,145 @@ private struct ThreadMetadataView: View {
 }
 
 private struct TurnTimelineView: View {
+    @ObservedObject var store: RemoteAppStore
     let thread: RemoteThread
     let turn: RemoteTurn
 
+    private var items: [RemoteItem] {
+        turn.itemIDs.compactMap { thread.items[$0] }
+    }
+
+    private var userMessages: [RemoteItem] {
+        items.filter { $0.type == .userMessage }
+    }
+
+    private var agentMessages: [RemoteItem] {
+        items.filter { $0.type == .agentMessage }
+    }
+
+    private var finalMessages: [RemoteItem] {
+        let explicit = agentMessages.filter { item in
+            guard let phase = item.phase?.lowercased() else { return false }
+            return phase == "final_answer" || phase == "finalanswer" || phase == "final"
+        }
+        if !explicit.isEmpty { return explicit }
+        guard turnFinished, let fallback = agentMessages.last else { return [] }
+        return [fallback]
+    }
+
+    private var processItems: [RemoteItem] {
+        let finalIDs = Set(finalMessages.map(\.id))
+        return items.filter { $0.type != .userMessage && !finalIDs.contains($0.id) }
+    }
+
+    private var turnFinished: Bool {
+        switch turn.status {
+        case .completed, .failed, .interrupted:
+            return true
+        case .notStarted, .inProgress, .unknown(_):
+            return false
+        }
+    }
+
+    private var hasFinalReply: Bool {
+        finalMessages.contains { !($0.text ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+    }
+
+    private var processCollapsed: Bool {
+        turnFinished && hasFinalReply
+    }
+
+    private var processExpanded: Bool {
+        !processCollapsed || store.state.processExpanded[turn.id] == true
+    }
+
+    private var hasProcess: Bool {
+        !processItems.isEmpty || !(turn.diff ?? "").isEmpty || turn.status == .inProgress
+    }
+
+    private var processTitle: String {
+        switch turn.status {
+        case .failed:
+            return "处理失败"
+        case .interrupted:
+            return "已停止"
+        case .completed:
+            return "已处理"
+        case .notStarted, .inProgress, .unknown(_):
+            return "处理中"
+        }
+    }
+
+    private var durationText: String? {
+        guard let durationMs = turn.durationMs else { return nil }
+        let seconds = max(1, Int((durationMs + 500) / 1_000))
+        if seconds < 60 { return "\(seconds) 秒" }
+        let minutes = seconds / 60
+        let remainder = seconds % 60
+        return remainder == 0 ? "\(minutes) 分钟" : "\(minutes) 分 \(remainder) 秒"
+    }
+
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            HStack(spacing: 8) {
-                Image(systemName: turn.status == .inProgress ? "bolt.fill" : "arrow.turn.down.right")
-                    .foregroundColor(turn.status == .failed ? .red : .accentColor)
-                Text(turn.status.displayName)
-                    .font(.headline)
-                Text(turn.id)
-                    .font(.caption2)
-                    .foregroundColor(.secondary)
-                    .lineLimit(1)
-                Spacer(minLength: 0)
+        VStack(alignment: .leading, spacing: 12) {
+            ForEach(userMessages, id: \.id) { item in
+                UserMessageTimelineView(item: item)
+            }
+
+            if hasProcess {
+                VStack(alignment: .leading, spacing: 10) {
+                    if processCollapsed {
+                        Button {
+                            store.setTurnExpanded(turn.id, expanded: !processExpanded)
+                        } label: {
+                            ProcessHeaderView(
+                                title: processTitle,
+                                durationText: durationText,
+                                expanded: processExpanded,
+                                interactive: true
+                            )
+                        }
+                        .buttonStyle(.plain)
+                    } else {
+                        ProcessHeaderView(
+                            title: processTitle,
+                            durationText: durationText,
+                            expanded: true,
+                            interactive: false
+                        )
+                    }
+
+                    if processExpanded {
+                        if processItems.isEmpty, (turn.diff ?? "").isEmpty {
+                            HStack(spacing: 8) {
+                                ProgressView()
+                                    .controlSize(.small)
+                                Text("正在准备会话上下文")
+                                    .font(.caption)
+                                    .foregroundColor(.secondary)
+                            }
+                            .padding(.vertical, 4)
+                        } else {
+                            ForEach(processItems, id: \.id) { item in
+                                ProcessItemTimelineView(item: item)
+                            }
+                        }
+
+                        if let diff = turn.diff, !diff.isEmpty,
+                           !processItems.contains(where: { $0.type == .fileChange && !$0.patch.isEmpty }) {
+                            ItemDetailContainer(title: "查看本回合文件差异", systemImage: "arrow.triangle.2.circlepath") {
+                                Text(diff)
+                                    .font(.system(.footnote, design: .monospaced))
+                                    .textSelection(.enabled)
+                            }
+                        }
+                    }
+                }
+            }
+
+            ForEach(finalMessages, id: \.id) { item in
+                if let text = item.text, !text.isEmpty {
+                    FinalAnswerTimelineView(text: text)
+                }
             }
 
             if let error = turn.error, !error.isEmpty {
@@ -414,101 +554,202 @@ private struct TurnTimelineView: View {
                     .foregroundColor(.red)
                     .textSelection(.enabled)
             }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.vertical, 4)
+    }
+}
 
-            ForEach(turn.itemIDs, id: \.self) { itemID in
-                if let item = thread.items[itemID] {
-                    ItemTimelineView(item: item)
-                }
+private struct ProcessHeaderView: View {
+    let title: String
+    let durationText: String?
+    let expanded: Bool
+    let interactive: Bool
+
+    var body: some View {
+        HStack(spacing: 5) {
+            Text(title)
+            if let durationText {
+                Text(durationText)
             }
-
-            if let diff = turn.diff, !diff.isEmpty {
-                VStack(alignment: .leading, spacing: 6) {
-                    Label("变更", systemImage: "arrow.triangle.2.circlepath")
-                        .font(.subheadline.weight(.semibold))
-                    Text(diff)
-                        .font(.system(.footnote, design: .monospaced))
-                        .textSelection(.enabled)
-                }
-                .padding(10)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .background(Color(.secondarySystemBackground))
-                .cornerRadius(8)
+            Spacer(minLength: 0)
+            if interactive {
+                Image(systemName: "chevron.right")
+                    .rotationEffect(.degrees(expanded ? 90 : 0))
             }
         }
-        .padding(12)
+        .font(.caption)
+        .foregroundColor(.secondary)
+        .padding(.bottom, 8)
+        .overlay(alignment: .bottom) {
+            Divider()
+        }
+        .contentShape(Rectangle())
+    }
+}
+
+private struct UserMessageTimelineView: View {
+    let item: RemoteItem
+
+    var body: some View {
+        HStack {
+            Spacer(minLength: 36)
+            Text(item.text ?? "")
+                .textSelection(.enabled)
+                .padding(.horizontal, 13)
+                .padding(.vertical, 10)
+                .background(Color(.secondarySystemGroupedBackground))
+                .cornerRadius(16)
+        }
+    }
+}
+
+private struct FinalAnswerTimelineView: View {
+    let text: String
+
+    var body: some View {
+        Text(text)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .textSelection(.enabled)
+            .lineSpacing(4)
+    }
+}
+
+private struct ProcessItemTimelineView: View {
+    let item: RemoteItem
+
+    var body: some View {
+        switch item.type {
+        case .agentMessage:
+            if let text = item.text, !text.isEmpty {
+                Text(text)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .textSelection(.enabled)
+                    .lineSpacing(3)
+            }
+        case .reasoning:
+            ItemDetailContainer(title: "思考", systemImage: "brain.head.profile") {
+                Text((item.summary + item.content).joined(separator: "\n"))
+                    .font(.subheadline)
+                    .foregroundColor(.secondary)
+                    .textSelection(.enabled)
+            }
+        case .plan:
+            ItemDetailContainer(title: "计划", systemImage: "list.bullet.clipboard") {
+                Text(item.text ?? "")
+                    .textSelection(.enabled)
+            }
+        default:
+            ItemTimelineView(item: item)
+        }
+    }
+}
+
+private struct ItemDetailContainer<Content: View>: View {
+    let title: String
+    let systemImage: String
+    let content: Content
+
+    init(title: String, systemImage: String, @ViewBuilder content: () -> Content) {
+        self.title = title
+        self.systemImage = systemImage
+        self.content = content()
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Label(title, systemImage: systemImage)
+                .font(.caption.weight(.semibold))
+                .foregroundColor(.secondary)
+            content
+        }
+        .padding(.vertical, 4)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Color(.systemBackground))
-        .cornerRadius(8)
     }
 }
 
 private struct ItemTimelineView: View {
     let item: RemoteItem
+    @State private var expanded = false
+
+    private var title: String {
+        switch item.type {
+        case .commandExecution:
+            if item.status == .inProgress, let command = item.command, !command.isEmpty {
+                return "正在运行 \(command)"
+            }
+            return item.status == .failed ? "命令执行失败" : "运行了命令"
+        case .fileChange:
+            return item.status == .inProgress ? "正在编辑文件" : "编辑了文件"
+        case .toolCall:
+            let toolName = [item.namespace, item.tool].compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: "/")
+            return "\(item.status == .inProgress ? "正在使用" : "已使用") \(toolName)"
+        default:
+            return item.type.displayName
+        }
+    }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            HStack(spacing: 8) {
+        DisclosureGroup(isExpanded: $expanded) {
+            VStack(alignment: .leading, spacing: 6) {
+                if let phase = item.phase, !phase.isEmpty {
+                    Text(phase)
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                }
+
+                if let command = item.command, !command.isEmpty {
+                    Text("$ \(command)")
+                        .font(.system(.footnote, design: .monospaced))
+                        .textSelection(.enabled)
+                }
+
+                if let text = item.text, !text.isEmpty {
+                    Text(text)
+                        .textSelection(.enabled)
+                }
+
+                ForEach(item.content, id: \.self) { content in
+                    Text(content)
+                        .textSelection(.enabled)
+                }
+
+                if !item.summary.isEmpty {
+                    Text(item.summary.joined(separator: "\n"))
+                        .font(.subheadline)
+                        .foregroundColor(.secondary)
+                        .textSelection(.enabled)
+                }
+
+                if !item.output.isEmpty {
+                    Text(item.output)
+                        .font(.system(.footnote, design: .monospaced))
+                        .textSelection(.enabled)
+                }
+
+                if !item.patch.isEmpty {
+                    Text(item.patch)
+                        .font(.system(.footnote, design: .monospaced))
+                        .textSelection(.enabled)
+                }
+            }
+            .padding(.top, 6)
+        } label: {
+            HStack(spacing: 7) {
                 Image(systemName: item.type.systemImage)
                     .foregroundColor(item.type.tint)
-                Text(item.type.displayName)
-                    .font(.subheadline.weight(.semibold))
+                Text(title)
+                    .font(.caption.weight(.semibold))
+                    .lineLimit(1)
                 Text(item.status.displayName)
-                    .font(.caption)
+                    .font(.caption2)
                     .foregroundColor(.secondary)
                 Spacer(minLength: 0)
             }
-
-            if let phase = item.phase, !phase.isEmpty {
-                Text(phase)
-                    .font(.caption)
-                    .foregroundColor(.secondary)
-            }
-
-            if let command = item.command, !command.isEmpty {
-                Text("$ \(command)")
-                    .font(.system(.footnote, design: .monospaced))
-                    .textSelection(.enabled)
-            }
-
-            if let text = item.text, !text.isEmpty {
-                Text(text)
-                    .textSelection(.enabled)
-            }
-
-            ForEach(item.content, id: \.self) { content in
-                Text(content)
-                    .textSelection(.enabled)
-            }
-
-            if !item.summary.isEmpty {
-                Text(item.summary.joined(separator: "\n"))
-                    .font(.subheadline)
-                    .foregroundColor(.secondary)
-                    .textSelection(.enabled)
-            }
-
-            if !item.output.isEmpty {
-                Text(item.output)
-                    .font(.system(.footnote, design: .monospaced))
-                    .textSelection(.enabled)
-            }
-
-            if !item.patch.isEmpty {
-                Text(item.patch)
-                    .font(.system(.footnote, design: .monospaced))
-                    .textSelection(.enabled)
-            }
-
-            if let tool = item.tool, !tool.isEmpty {
-                Text(tool)
-                    .font(.caption)
-                    .foregroundColor(.secondary)
-            }
         }
-        .padding(10)
+        .tint(.secondary)
+        .padding(.vertical, 5)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Color(.secondarySystemBackground))
-        .cornerRadius(7)
     }
 }
 

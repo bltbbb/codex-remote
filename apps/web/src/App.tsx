@@ -161,6 +161,8 @@ export default function App(): React.JSX.Element {
   });
   const clientRef = useRef<RemoteClient | null>(null);
   const conversationRef = useRef<HTMLDivElement | null>(null);
+  const scrollSettleFrameRef = useRef<number | null>(null);
+  const scrollSettleTimerRef = useRef<number | null>(null);
   const loadedThreadIdsRef = useRef<Set<string>>(new Set());
   const displayedThreadIdsRef = useRef<Set<string>>(initialDisplayedThreadIds);
   const needsFullRestoreRef = useRef(true);
@@ -173,7 +175,18 @@ export default function App(): React.JSX.Element {
     activeThreadIdRef.current = state.activeThreadId;
   }, [state.activeThreadId]);
 
-  function scrollConversationToEnd(): void {
+  function cancelPendingScrollSettling(): void {
+    if (scrollSettleFrameRef.current != null) {
+      window.cancelAnimationFrame(scrollSettleFrameRef.current);
+      scrollSettleFrameRef.current = null;
+    }
+    if (scrollSettleTimerRef.current != null) {
+      window.clearTimeout(scrollSettleTimerRef.current);
+      scrollSettleTimerRef.current = null;
+    }
+  }
+
+  function syncConversationToEnd(): void {
     const element = conversationRef.current;
     if (element) {
       element.scrollTop = element.scrollHeight;
@@ -184,6 +197,27 @@ export default function App(): React.JSX.Element {
       setScrollMetrics({ top: element.scrollTop, height: element.clientHeight });
     }
   }
+
+  function scrollConversationToEnd(): void {
+    cancelPendingScrollSettling();
+    let remainingFrames = 4;
+    const settle = (): void => {
+      scrollSettleFrameRef.current = null;
+      syncConversationToEnd();
+      remainingFrames -= 1;
+      if (remainingFrames > 0) {
+        scrollSettleFrameRef.current = window.requestAnimationFrame(settle);
+        return;
+      }
+      scrollSettleTimerRef.current = window.setTimeout(() => {
+        scrollSettleTimerRef.current = null;
+        syncConversationToEnd();
+      }, 120);
+    };
+    settle();
+  }
+
+  useEffect(() => () => cancelPendingScrollSettling(), []);
 
   useEffect(() => {
     const client = new RemoteClient({
@@ -522,6 +556,8 @@ export default function App(): React.JSX.Element {
         <div
           className="conversation-scroll"
           ref={conversationRef}
+          onPointerDown={cancelPendingScrollSettling}
+          onWheel={cancelPendingScrollSettling}
           onScroll={() => {
             const element = conversationRef.current;
             if (!element) return;
@@ -534,7 +570,9 @@ export default function App(): React.JSX.Element {
               unreadCountRef.current = 0;
               setUnreadCount(0);
             }
-            if (distance > 120 && followOutput) setFollowOutput(false);
+            if (distance > 120 && followOutput) {
+              setFollowOutput(false);
+            }
             if (distance <= 48 && running && !followOutput) setFollowOutput(true);
           }}
         >

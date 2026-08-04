@@ -195,7 +195,9 @@ function TurnView({
   const retryText = retryItem?.type === "userMessage" ? retryItem.text : null;
   const duration = useTurnDuration(turn);
   const hasFinalReply = finalMessages.some((item) => item.text.trim().length > 0);
-  const processExpanded = !hasFinalReply || (turn.status !== "inProgress" && isExpanded);
+  const turnFinished = turn.status !== "inProgress" && turn.status !== "notStarted";
+  const processCollapsed = turnFinished && hasFinalReply;
+  const processExpanded = !processCollapsed || isExpanded;
   const hasProcess = processItems.length > 0 || Boolean(turn.diff) || turn.status === "inProgress";
 
   return (
@@ -207,8 +209,8 @@ function TurnView({
       ))}
 
       {hasProcess && (
-        <div className={`process-flow ${hasFinalReply ? "process-flow-collapsed" : "process-flow-live"} ${processExpanded ? "process-flow-open" : ""}`}>
-          {hasFinalReply && turn.status !== "inProgress" ? (
+        <div className={`process-flow ${processCollapsed ? "process-flow-collapsed" : "process-flow-live"} ${processExpanded ? "process-flow-open" : ""}`}>
+          {processCollapsed ? (
             <button
               data-testid={`process-summary-${turn.id}`}
               className="process-summary"
@@ -220,14 +222,12 @@ function TurnView({
               <time>{duration}</time>
               <ChevronRightIcon />
             </button>
-          ) : hasFinalReply ? (
-            <div data-testid={`process-summary-${turn.id}`} className="process-summary process-summary-static" aria-expanded="false">
-              <span>{processedLabel(turn)}</span>
-              <time>{duration}</time>
-              <ChevronRightIcon />
-            </div>
           ) : (
-            <div className="process-live-heading" role="status" aria-label="Codex 正在执行">
+            <div
+              className="process-live-heading"
+              role={turn.status === "inProgress" ? "status" : undefined}
+              aria-label={turn.status === "inProgress" ? "Codex 正在执行" : undefined}
+            >
               <span>{processedLabel(turn)}</span>
               <time>{duration}</time>
             </div>

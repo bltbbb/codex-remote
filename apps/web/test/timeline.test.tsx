@@ -115,7 +115,7 @@ describe("会话时间线", () => {
     expect(container.querySelector(".final-answer-row")).not.toBeInTheDocument();
   });
 
-  it("第一段最终回复出现后立即折叠整个过程", () => {
+  it("最终回复流式输出期间仍展示过程，回合结束后再折叠", () => {
     const streamingThread: RemoteThread = {
       ...thread,
       turnIds: ["running"],
@@ -129,12 +129,12 @@ describe("会话时间线", () => {
         final: { type: "agentMessage", id: "final", turnId: "running", status: "inProgress", text: "这是最终回复的第一段。", phase: "final_answer" },
       },
     };
-    const { container } = render(<Timeline thread={streamingThread} expanded={{ running: true }} onToggleExpanded={() => undefined} onRetry={() => undefined} />);
+    const { container } = render(<Timeline thread={streamingThread} expanded={{ running: false }} onToggleExpanded={() => undefined} onRetry={() => undefined} />);
 
     expect(screen.getByText("这是最终回复的第一段。")).toBeInTheDocument();
-    expect(screen.queryByText("过程中的回复")).not.toBeInTheDocument();
-    expect(screen.getByTestId("process-summary-running")).toHaveAttribute("aria-expanded", "false");
-    expect(container.querySelector(".process-live-body")).not.toBeInTheDocument();
+    expect(screen.getByText("过程中的回复")).toBeInTheDocument();
+    expect(screen.queryByTestId("process-summary-running")).not.toBeInTheDocument();
+    expect(container.querySelector(".process-live-body")).toBeInTheDocument();
   });
 
   it("长历史只挂载可视窗口内的回合", () => {
@@ -152,5 +152,32 @@ describe("会话时间线", () => {
     const { container } = render(<Timeline thread={longThread} expanded={{}} onToggleExpanded={() => undefined} onRetry={() => undefined} scrollTop={0} viewportHeight={600} />);
     expect(container.querySelector(".timeline")).toHaveAttribute("data-virtualized", "true");
     expect(container.querySelectorAll(".turn").length).toBeLessThan(turnIds.length);
+  });
+
+  it("长历史滚动到底部时挂载最后一个回合", () => {
+    const turnIds = Array.from({ length: 120 }, (_, index) => `turn-${index}`);
+    const turns = Object.fromEntries(turnIds.map((id) => [id, {
+      id,
+      status: "completed" as const,
+      itemIds: [],
+      startedAt: 1,
+      completedAt: 2,
+      durationMs: 1_000,
+      error: null,
+    }]));
+    const longThread: RemoteThread = { ...thread, turnIds, turns, items: {} };
+    render(
+      <Timeline
+        thread={longThread}
+        expanded={{}}
+        onToggleExpanded={() => undefined}
+        onRetry={() => undefined}
+        scrollTop={turnIds.length * 280}
+        viewportHeight={600}
+      />,
+    );
+
+    expect(screen.getByTestId("turn-turn-119")).toBeInTheDocument();
+    expect(screen.queryByTestId("turn-turn-0")).not.toBeInTheDocument();
   });
 });

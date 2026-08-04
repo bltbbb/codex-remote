@@ -168,6 +168,10 @@ public final class RemoteAppStore: RemoteAppStoreObservableObject {
         state = RemoteReducer.setActiveThread(state, threadID: threadID)
     }
 
+    public func setTurnExpanded(_ turnID: String, expanded: Bool) {
+        state = RemoteReducer.setTurnExpanded(state, turnID: turnID, expanded: expanded)
+    }
+
     @discardableResult
     public func sendRequest(_ method: ClientMethod, params: JSONValue = .object([:])) async -> JSONValue? {
         await performRequest(method, params: params)
