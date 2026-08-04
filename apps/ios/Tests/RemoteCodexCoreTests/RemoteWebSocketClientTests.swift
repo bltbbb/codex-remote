@@ -143,7 +143,7 @@ final class RemoteWebSocketClientTests: XCTestCase {
         await context.client.close()
     }
 
-    func testSocketCloseCancelsScheduledAck() async throws {
+    func testSocketCloseCancelsScheduledAckAndSchedulesReconnect() async throws {
         let collector = EventCollector()
         let context = makeClient(collector: collector)
         await connectAndResume(context)
@@ -154,7 +154,45 @@ final class RemoteWebSocketClientTests: XCTestCase {
         context.socket.close()
         await waitUntil { context.connection.phases.last == .offline }
 
-        XCTAssertTrue(context.scheduler.activeDelays.isEmpty)
+        XCTAssertFalse(context.scheduler.activeDelays.contains(where: { abs($0 - 0.1) < 0.0001 }))
+        XCTAssertTrue(context.scheduler.activeDelays.contains(where: { abs($0 - 1) < 0.0001 }))
+
+        context.scheduler.fireFirst(delay: 1)
+        await waitUntil {
+            context.socket.requests.filter { $0.method == .eventsResume }.count == 2
+        }
+
+        await context.client.close()
+    }
+
+    func testExplicitReconnectReplacesOnlineSocketAndResumesEvents() async throws {
+        let context = makeClient()
+        await connectAndResume(context)
+        context.socket.emit(.event(makeEvent(sequence: 7, eventID: "event-7", message: "事件 7")))
+        await waitUntil { await context.client.lastSequence == 7 }
+
+        await context.client.reconnect()
+        await waitUntil { context.socket.connectCount == 2 }
+        await waitUntil {
+            context.socket.requests.filter { $0.method == .eventsResume }.count == 2
+        }
+        let resumeRequest = try XCTUnwrap(
+            context.socket.requests.filter { $0.method == .eventsResume }.last
+        )
+        XCTAssertEqual(resumeRequest.params.objectValue?["afterSequence"]?.intValue, 7)
+
+        context.socket.emit(.response(ServerResponseEnvelope(
+            id: resumeRequest.id,
+            ok: true,
+            result: .object([
+                "events": .array([]),
+                "latestSequence": .number(7),
+                "resetRequired": .bool(false)
+            ])
+        )))
+        await waitUntil { context.connection.phases.last == .online }
+
+        await context.client.close()
     }
 
     private func makeClient(initialSequence: Int64 = 0, collector: EventCollector? = nil) -> TestContext {
@@ -257,6 +295,7 @@ private final class FakeRemoteWebSocket: RemoteWebSocket {
     var onClose: ((Error?) -> Void)?
     var sentMessages: [RemoteSocketMessage] = []
     var closeCount = 0
+    var connectCount = 0
 
     var requests: [ClientRequestEnvelope] {
         sentMessages.compactMap { message in
@@ -269,6 +308,7 @@ private final class FakeRemoteWebSocket: RemoteWebSocket {
     }
 
     func connect() {
+        connectCount += 1
         onOpen?()
     }
 

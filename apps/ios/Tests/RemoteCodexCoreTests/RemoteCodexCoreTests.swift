@@ -187,6 +187,88 @@ final class RemoteCodexCoreTests: XCTestCase {
         XCTAssertTrue(state.processExpanded["turn-expand"] == true)
     }
 
+    func testThreadSnapshotKeepsRealtimeTurnThatArrivedDuringLoading() {
+        var state = RemoteReducer.createInitialState()
+        let liveItem = RemoteItem(
+            type: .userMessage,
+            id: "item-live",
+            turnID: "turn-live",
+            status: .completed,
+            text: "刚刚发送的消息"
+        )
+        state = RemoteReducer.apply(
+            EventEnvelope(
+                sequence: 1,
+                eventID: "item-live",
+                event: .itemUpsert(ItemUpsertEvent(threadID: "thread-race", turnID: "turn-live", item: liveItem))
+            ),
+            to: state
+        )
+
+        let historicalTurn = RemoteTurn(id: "turn-old", status: .completed, itemIDs: ["item-old"])
+        let historicalItem = RemoteItem(
+            type: .userMessage,
+            id: "item-old",
+            turnID: "turn-old",
+            status: .completed,
+            text: "历史消息"
+        )
+        let snapshot = RemoteThread(
+            id: "thread-race",
+            sessionID: "session-race",
+            title: "竞态会话",
+            preview: "",
+            cwd: "E:\\workspace",
+            modelProvider: "openai",
+            createdAt: 1,
+            updatedAt: 2,
+            status: "active",
+            isPinned: false,
+            turnIDs: [historicalTurn.id],
+            turns: [historicalTurn.id: historicalTurn],
+            items: [historicalItem.id: historicalItem]
+        )
+
+        state = RemoteReducer.mergeThread(snapshot, into: state)
+
+        XCTAssertEqual(state.threads["thread-race"]?.turnIDs, ["turn-old", "turn-live"])
+        XCTAssertEqual(state.threads["thread-race"]?.items["item-live"]?.text, "刚刚发送的消息")
+    }
+
+    func testThreadSnapshotDoesNotShortenStreamingItem() {
+        let turn = RemoteTurn(id: "turn-stream", status: .inProgress, itemIDs: ["item-stream"])
+        let liveItem = RemoteItem(
+            type: .agentMessage,
+            id: "item-stream",
+            turnID: turn.id,
+            status: .inProgress,
+            text: "已经收到的较长流式内容"
+        )
+        var liveThread = RemoteThread(
+            id: "thread-stream",
+            sessionID: "session-stream",
+            title: "流式会话",
+            preview: "",
+            cwd: "E:\\workspace",
+            modelProvider: "openai",
+            createdAt: 1,
+            updatedAt: 2,
+            status: "active",
+            isPinned: false,
+            turnIDs: [turn.id],
+            turns: [turn.id: turn],
+            items: [liveItem.id: liveItem]
+        )
+        var state = RemoteReducer.mergeThread(liveThread, into: RemoteReducer.createInitialState())
+
+        var shorterItem = liveItem
+        shorterItem.text = "较短内容"
+        liveThread.items[liveItem.id] = shorterItem
+        state = RemoteReducer.mergeThread(liveThread, into: state)
+
+        XCTAssertEqual(state.threads[liveThread.id]?.items[liveItem.id]?.text, "已经收到的较长流式内容")
+    }
+
     private func loadMessage(_ fileName: String) throws -> WireMessage {
         let fileURL = fixtureDirectory().appendingPathComponent(fileName)
         let data = try Data(contentsOf: fileURL)

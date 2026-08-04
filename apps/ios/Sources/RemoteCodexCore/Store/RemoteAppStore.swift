@@ -81,6 +81,7 @@ public final class RemoteAppStore: RemoteAppStoreObservableObject {
     private let callbackBridge: RemoteAppStoreCallbackBridge
     private var pendingTurnSubmission: PendingTurnSubmission?
     private var allowedWorkspacePaths = Set<String>()
+    public private(set) var loadedThreadIDs: Set<String>
 
     public var connectionPhase: ConnectionPhase {
         state.connection.phase
@@ -112,6 +113,7 @@ public final class RemoteAppStore: RemoteAppStoreObservableObject {
         )
 
         self.state = initialState
+        self.loadedThreadIDs = Set(initialState.threads.keys)
         self.callbackBridge = bridge
         self.client = clientFactory(callbacks)
         bridge.store = self
@@ -146,6 +148,10 @@ public final class RemoteAppStore: RemoteAppStoreObservableObject {
 
     public func connect() async {
         await client.connect()
+    }
+
+    public func reconnect() async {
+        await client.reconnect()
     }
 
     public func close() async {
@@ -224,13 +230,18 @@ public final class RemoteAppStore: RemoteAppStoreObservableObject {
         ) else { return nil }
         guard let response = decodeResult(result, method: .threadRead, as: ThreadReadResponse.self) else { return nil }
         guard let thread = response.thread else {
-            if response.loading == true { return nil }
+            if response.isAcknowledgement(for: threadID) {
+                clearThreadReadError()
+                return nil
+            }
             recordError(RemoteAppStoreError.invalidResponse(method: .threadRead, detail: "缺少 thread"))
             return nil
         }
 
+        loadedThreadIDs.insert(thread.id)
         state = RemoteReducer.mergeThread(thread, into: state)
         state = RemoteReducer.setActiveThread(state, threadID: thread.id)
+        clearThreadReadError()
         return thread
     }
 
@@ -251,6 +262,7 @@ public final class RemoteAppStore: RemoteAppStoreObservableObject {
         ) else { return nil }
         guard let response = decodeResult(result, method: .threadCreate, as: ThreadResponse.self) else { return nil }
 
+        loadedThreadIDs.insert(response.thread.id)
         state = RemoteReducer.mergeThread(response.thread, into: state)
         state = RemoteReducer.setActiveThread(state, threadID: response.thread.id)
         return response.thread
@@ -381,8 +393,26 @@ public final class RemoteAppStore: RemoteAppStoreObservableObject {
         state = next
     }
 
+    private func clearThreadReadError() {
+        guard state.lastError?.hasPrefix("thread.read 响应格式无效") == true else { return }
+        var next = state
+        next.lastError = nil
+        state = next
+    }
+
     fileprivate func receive(event: EventEnvelope) {
+        switch event.event {
+        case let .threadSnapshot(value):
+            loadedThreadIDs.insert(value.thread.id)
+        case let .threadRemoved(value):
+            loadedThreadIDs.remove(value.threadID)
+        default:
+            break
+        }
         state = RemoteReducer.apply(event, to: state)
+        if case .threadSnapshot = event.event {
+            clearThreadReadError()
+        }
     }
 
     fileprivate func receiveSequenceReset() {
@@ -390,9 +420,12 @@ public final class RemoteAppStore: RemoteAppStoreObservableObject {
     }
 
     fileprivate func receiveConnectionChange(phase: ConnectionPhase, message: String) {
+        let previousConnectionMessage = state.connection.message
         var next = RemoteReducer.setConnection(state, phase: phase, message: message)
         if phase == .error {
             next.lastError = message
+        } else if next.lastError == previousConnectionMessage {
+            next.lastError = nil
         }
         state = next
     }
@@ -421,7 +454,23 @@ private struct ThreadResponse: Codable {
 
 private struct ThreadReadResponse: Codable {
     let thread: RemoteThread?
+    let threadID: String?
+    let delivered: Bool?
     let loading: Bool?
+    let cached: Bool?
+
+    private enum CodingKeys: String, CodingKey {
+        case thread
+        case threadID = "threadId"
+        case delivered
+        case loading
+        case cached
+    }
+
+    func isAcknowledgement(for requestedThreadID: String) -> Bool {
+        guard threadID == requestedThreadID else { return false }
+        return delivered != nil || loading != nil || cached != nil
+    }
 }
 
 private struct TurnStartResponse: Codable {

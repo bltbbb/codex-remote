@@ -197,7 +197,7 @@ public enum RemoteReducer {
     /// 将请求响应里的完整线程合并进状态；它不伪造远程事件序号。
     public static func mergeThread(_ thread: RemoteThread, into current: RemoteState) -> RemoteState {
         var next = current
-        next.threads[thread.id] = thread
+        next.threads[thread.id] = mergedThread(snapshot: thread, existing: next.threads[thread.id])
         if !next.threadOrder.contains(thread.id) {
             next.threadOrder.insert(thread.id, at: 0)
         }
@@ -273,6 +273,72 @@ public enum RemoteReducer {
         return thread
     }
 
+    /// 完整快照可能与正在到达的实时事件交错。快照负责提供历史顺序，
+    /// 但不能删除快照请求发出后才收到的回合、条目或更长的流式正文。
+    private static func mergedThread(snapshot: RemoteThread, existing: RemoteThread?) -> RemoteThread {
+        guard let existing else { return snapshot }
+
+        var merged = snapshot
+        for turnID in existing.turnIDs where !merged.turnIDs.contains(turnID) {
+            merged.turnIDs.append(turnID)
+        }
+
+        for (turnID, liveTurn) in existing.turns {
+            guard var snapshotTurn = merged.turns[turnID] else {
+                merged.turns[turnID] = liveTurn
+                continue
+            }
+            snapshotTurn.itemIDs.append(contentsOf: liveTurn.itemIDs.filter { !snapshotTurn.itemIDs.contains($0) })
+            snapshotTurn.startedAt = snapshotTurn.startedAt ?? liveTurn.startedAt
+            snapshotTurn.completedAt = snapshotTurn.completedAt ?? liveTurn.completedAt
+            snapshotTurn.durationMs = snapshotTurn.durationMs ?? liveTurn.durationMs
+            snapshotTurn.error = snapshotTurn.error ?? liveTurn.error
+            snapshotTurn.diff = snapshotTurn.diff ?? liveTurn.diff
+            if isTerminal(liveTurn.status), !isTerminal(snapshotTurn.status) {
+                snapshotTurn.status = liveTurn.status
+            }
+            merged.turns[turnID] = snapshotTurn
+        }
+
+        for (itemID, liveItem) in existing.items {
+            if let snapshotItem = merged.items[itemID] {
+                merged.items[itemID] = mergedItem(snapshot: snapshotItem, live: liveItem)
+            } else {
+                merged.items[itemID] = liveItem
+            }
+        }
+        return merged
+    }
+
+    private static func mergedItem(snapshot: RemoteItem, live: RemoteItem) -> RemoteItem {
+        var merged = snapshot
+        if (live.text?.count ?? 0) > (merged.text?.count ?? 0) {
+            merged.text = live.text
+        }
+        if live.summary.joined().count > merged.summary.joined().count {
+            merged.summary = live.summary
+        }
+        if live.content.joined().count > merged.content.joined().count {
+            merged.content = live.content
+        }
+        if live.output.count > merged.output.count {
+            merged.output = live.output
+        }
+        if live.patch.count > merged.patch.count {
+            merged.patch = live.patch
+        }
+        if merged.changes.isEmpty, !live.changes.isEmpty {
+            merged.changes = live.changes
+        }
+        merged.exitCode = merged.exitCode ?? live.exitCode
+        merged.durationMs = merged.durationMs ?? live.durationMs
+        merged.success = merged.success ?? live.success
+        if isTerminal(live.status), !isTerminal(merged.status) {
+            merged.status = live.status
+        }
+        return merged
+    }
+
     private static func appendTurnID(_ turnID: String, to thread: inout RemoteThread) {
         if !thread.turnIDs.contains(turnID) {
             thread.turnIDs.append(turnID)
@@ -284,6 +350,15 @@ public enum RemoteReducer {
         case .completed, .failed, .interrupted:
             return true
         case .notStarted, .inProgress, .unknown(_):
+            return false
+        }
+    }
+
+    private static func isTerminal(_ status: ItemStatus) -> Bool {
+        switch status {
+        case .completed, .failed, .declined:
+            return true
+        case .pending, .inProgress, .unknown(_):
             return false
         }
     }

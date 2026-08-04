@@ -244,7 +244,12 @@ public actor RemoteWebSocketClient {
     private var queuedEvents: [EventEnvelope] = []
     private var pending: [String: PendingRequest] = [:]
     private var ackTask: (any RemoteTransportScheduledTask)?
+    private var reconnectTask: (any RemoteTransportScheduledTask)?
+    private var reconnectAttempt = 0
+    private var shouldReconnect = false
     private var seenEventIDs: [String: Int64] = [:]
+
+    private let reconnectDelays: [TimeInterval] = [1, 2, 4, 8, 15, 30]
 
     public let clientID: String
     public private(set) var phase: ConnectionPhase = .offline
@@ -275,6 +280,31 @@ public actor RemoteWebSocketClient {
     }
 
     public func connect() {
+        shouldReconnect = true
+        reconnectAttempt = 0
+        cancelScheduledReconnect()
+        startConnection()
+    }
+
+    /// 应用从后台返回时主动替换可能已经失效、但尚未触发关闭回调的连接。
+    public func reconnect() {
+        shouldReconnect = true
+        reconnectAttempt = 0
+        cancelScheduledReconnect()
+
+        connectionGeneration += 1
+        let previousSocket = socket
+        socket = nil
+        resuming = false
+        queuedEvents.removeAll()
+        cancelScheduledAck()
+        failAllPending(with: RemoteWebSocketClientError.connectionClosed)
+        previousSocket?.close()
+        phase = .offline
+        startConnection()
+    }
+
+    private func startConnection() {
         guard socket == nil, phase != .connecting, phase != .online else { return }
 
         connectionGeneration += 1
@@ -297,6 +327,9 @@ public actor RemoteWebSocketClient {
     }
 
     public func close() {
+        shouldReconnect = false
+        reconnectAttempt = 0
+        cancelScheduledReconnect()
         connectionGeneration += 1
         let previousSocket = socket
         socket = nil
@@ -344,6 +377,7 @@ public actor RemoteWebSocketClient {
 
     private func handleSocketOpen(generation: Int) {
         guard generation == connectionGeneration, socket != nil else { return }
+        cancelScheduledReconnect()
         phase = .online
         resuming = true
         Task { [weak self] in
@@ -373,6 +407,7 @@ public actor RemoteWebSocketClient {
         guard generation == connectionGeneration, socket != nil, phase == .online else { return }
         resuming = false
         flushQueuedEvents()
+        reconnectAttempt = 0
         onConnectionChange(.online, "电脑已连接")
     }
 
@@ -405,8 +440,9 @@ public actor RemoteWebSocketClient {
         cancelScheduledAck()
         failAllPending(with: RemoteWebSocketClientError.connectionClosed)
         phase = .offline
-        let message = error?.localizedDescription ?? "连接已关闭"
+        let message = transportDescription(error) ?? "连接已关闭"
         onConnectionChange(.offline, message)
+        scheduleReconnect(after: message)
     }
 
     private func handleSocketFailure(generation: Int, error: Error) {
@@ -417,10 +453,55 @@ public actor RemoteWebSocketClient {
         resuming = false
         queuedEvents.removeAll()
         cancelScheduledAck()
-        failAllPending(with: RemoteWebSocketClientError.transport(error.localizedDescription))
+        let message = transportDescription(error) ?? error.localizedDescription
+        failAllPending(with: RemoteWebSocketClientError.transport(message))
         phase = .error
-        onConnectionChange(.error, error.localizedDescription)
+        onConnectionChange(.error, message)
         previousSocket?.close()
+        scheduleReconnect(after: message)
+    }
+
+    private func scheduleReconnect(after message: String) {
+        guard shouldReconnect, socket == nil, reconnectTask == nil else { return }
+        guard reconnectAttempt < reconnectDelays.count else {
+            onConnectionChange(phase, "\(message)\n自动重连已暂停，请点击连接重试")
+            return
+        }
+
+        let delay = reconnectDelays[reconnectAttempt]
+        reconnectAttempt += 1
+        onConnectionChange(phase, "\(message)\n将在 \(Int(delay)) 秒后自动重连")
+        reconnectTask = scheduler.schedule(after: delay) { [weak self] in
+            Task { await self?.runScheduledReconnect() }
+        }
+    }
+
+    private func runScheduledReconnect() {
+        reconnectTask = nil
+        guard shouldReconnect, socket == nil else { return }
+        startConnection()
+    }
+
+    private func cancelScheduledReconnect() {
+        reconnectTask?.cancel()
+        reconnectTask = nil
+    }
+
+    private func transportDescription(_ error: Error?) -> String? {
+        guard let error else { return nil }
+        let nsError = error as NSError
+        var message = nsError.localizedDescription
+        let identity = "\(nsError.domain) \(nsError.code)"
+        if !message.contains(nsError.domain) {
+            message += "（\(identity)）"
+        }
+        if let underlying = nsError.userInfo[NSUnderlyingErrorKey] as? NSError {
+            let underlyingIdentity = "\(underlying.domain) \(underlying.code)"
+            if !message.contains(underlyingIdentity) {
+                message += "\n底层错误：\(underlying.localizedDescription)（\(underlyingIdentity)）"
+            }
+        }
+        return message
     }
 
     private func decode(_ result: Result<RemoteSocketMessage, Error>) throws -> WireMessage {

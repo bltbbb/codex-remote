@@ -174,6 +174,41 @@ final class RemoteAppStoreTests: XCTestCase {
         XCTAssertNil(context.store.state.lastError)
     }
 
+    func testLoadThreadAcceptsCachedDeliveryAckWithoutRecordingError() async throws {
+        let context = makeStore()
+        try await connectAndResume(context)
+
+        let loadTask = Task {
+            await context.store.loadThread("thread-cached")
+        }
+        await waitUntil { self.requests(in: context, method: .threadRead).count == 1 }
+        let request = try XCTUnwrap(requests(in: context, method: .threadRead).first)
+
+        let snapshot = makeThread(id: "thread-cached")
+        context.socket.emit(.event(EventEnvelope(
+            sequence: 1,
+            eventID: "thread-cached-snapshot",
+            event: .threadSnapshot(ThreadSnapshotEvent(thread: snapshot))
+        )))
+        await waitUntil { context.store.loadedThreadIDs.contains("thread-cached") }
+
+        context.socket.emit(.response(ServerResponseEnvelope(
+            id: request.id,
+            ok: true,
+            result: .object([
+                "threadId": .string("thread-cached"),
+                "delivered": .bool(true),
+                "cached": .bool(true)
+            ])
+        )))
+        let thread = await loadTask.value
+
+        XCTAssertNil(thread)
+        XCTAssertEqual(context.store.state.activeThreadID, "thread-cached")
+        XCTAssertEqual(context.store.state.currentThread?.id, "thread-cached")
+        XCTAssertNil(context.store.state.lastError)
+    }
+
     func testCreateThreadAndInterruptCurrentTurnRequests() async throws {
         var activeThread = makeThread(id: "thread-active")
         let activeTurn = RemoteTurn(id: "turn-active", status: .inProgress)

@@ -1,5 +1,6 @@
-import RemoteCodexCore
+import Foundation
 import PhotosUI
+import RemoteCodexCore
 import SwiftUI
 import UniformTypeIdentifiers
 
@@ -16,7 +17,20 @@ struct ThreadDetailView: View {
     var body: some View {
         Group {
             if let thread = store.currentThread {
-                ThreadTimelineView(store: store, thread: thread)
+                if store.loadedThreadIDs.contains(thread.id) {
+                    ThreadTimelineView(store: store, thread: thread)
+                        .id(thread.id)
+                } else {
+                    LoadingThreadDetailView(
+                        thread: thread,
+                        canRetry: store.connectionPhase == .online,
+                        retry: {
+                            Task {
+                                await store.loadThread(thread.id)
+                            }
+                        }
+                    )
+                }
             } else {
                 EmptyThreadDetailView()
             }
@@ -178,9 +192,46 @@ private struct EmptyThreadDetailView: View {
     }
 }
 
+private struct LoadingThreadDetailView: View {
+    let thread: RemoteThread
+    let canRetry: Bool
+    let retry: () -> Void
+
+    var body: some View {
+        VStack(spacing: 12) {
+            ProgressView()
+            Text("正在加载完整会话…")
+                .font(.headline)
+            Text("实时消息会在历史加载完成后按正确顺序显示")
+                .font(.caption)
+                .foregroundColor(.secondary)
+                .multilineTextAlignment(.center)
+            if !thread.cwd.isEmpty {
+                Text(thread.cwd)
+                    .font(.caption2)
+                    .foregroundColor(.secondary)
+                    .lineLimit(2)
+            }
+            Button("重新加载", action: retry)
+                .buttonStyle(.bordered)
+                .disabled(!canRetry)
+        }
+        .padding(24)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(Color(.systemGroupedBackground))
+    }
+}
+
 private struct ThreadTimelineView: View {
     @ObservedObject var store: RemoteAppStore
     let thread: RemoteThread
+    @State private var isAtBottom = true
+    @State private var followsLatest = true
+    @State private var isUserDragging = false
+    @State private var initialScrollCompleted = false
+
+    private let bottomAnchorID = "thread-timeline-bottom"
+    private let scrollCoordinateSpace = "thread-timeline-scroll"
 
     private var approvals: [ApprovalRequest] {
         store.state.approvals.values
@@ -189,34 +240,120 @@ private struct ThreadTimelineView: View {
     }
 
     var body: some View {
-        ScrollView {
-            LazyVStack(alignment: .leading, spacing: 14) {
-                ThreadMetadataView(thread: thread)
+        ScrollViewReader { scrollProxy in
+            GeometryReader { viewport in
+                ScrollView {
+                    LazyVStack(alignment: .leading, spacing: 14) {
+                        ThreadMetadataView(thread: thread)
 
-                if !approvals.isEmpty {
-                    ForEach(approvals, id: \.id) { approval in
-                        ApprovalCardView(store: store, approval: approval)
-                    }
-                }
-
-                if thread.turnIDs.isEmpty {
-                    Text("暂无回合")
-                        .foregroundColor(.secondary)
-                        .frame(maxWidth: .infinity, alignment: .center)
-                        .padding(.vertical, 36)
-                } else {
-                    ForEach(thread.turnIDs, id: \.self) { turnID in
-                        if let turn = thread.turns[turnID] {
-                            TurnTimelineView(thread: thread, turn: turn)
+                        if !approvals.isEmpty {
+                            ForEach(approvals, id: \.id) { approval in
+                                ApprovalCardView(store: store, approval: approval)
+                            }
                         }
+
+                        if thread.turnIDs.isEmpty {
+                            Text("暂无回合")
+                                .foregroundColor(.secondary)
+                                .frame(maxWidth: .infinity, alignment: .center)
+                                .padding(.vertical, 36)
+                        } else {
+                            ForEach(thread.turnIDs, id: \.self) { turnID in
+                                if let turn = thread.turns[turnID] {
+                                    TurnTimelineView(thread: thread, turn: turn)
+                                }
+                            }
+                        }
+
+                        Color.clear
+                            .frame(height: 1)
+                            .id(bottomAnchorID)
+                            .background(
+                                GeometryReader { marker in
+                                    Color.clear.preference(
+                                        key: TimelineBottomOffsetPreferenceKey.self,
+                                        value: marker.frame(in: .named(scrollCoordinateSpace)).maxY
+                                    )
+                                }
+                            )
+                    }
+                    .padding(.horizontal)
+                    .padding(.top, 14)
+                    .padding(.bottom, 10)
+                }
+                .coordinateSpace(name: scrollCoordinateSpace)
+                .simultaneousGesture(
+                    DragGesture(minimumDistance: 4)
+                        .onChanged { _ in
+                            isUserDragging = true
+                            if !isAtBottom {
+                                followsLatest = false
+                            }
+                        }
+                        .onEnded { _ in
+                            isUserDragging = false
+                            followsLatest = isAtBottom
+                        }
+                )
+                .onPreferenceChange(TimelineBottomOffsetPreferenceKey.self) { bottomOffset in
+                    let nextAtBottom = bottomOffset - viewport.size.height <= 72
+                    isAtBottom = nextAtBottom
+                    if nextAtBottom {
+                        followsLatest = true
+                    } else if isUserDragging {
+                        followsLatest = false
                     }
                 }
+                .onAppear {
+                    scrollToLatest(using: scrollProxy, animated: false)
+                }
+                .onChange(of: thread) { _ in
+                    guard followsLatest || !initialScrollCompleted else { return }
+                    scrollToLatest(using: scrollProxy, animated: false)
+                }
+                .onChange(of: approvals) { _ in
+                    guard followsLatest else { return }
+                    scrollToLatest(using: scrollProxy, animated: false)
+                }
+                .overlay(alignment: .bottomTrailing) {
+                    if initialScrollCompleted && !isAtBottom {
+                        Button {
+                            followsLatest = true
+                            scrollToLatest(using: scrollProxy, animated: true)
+                        } label: {
+                            Label("回到底部", systemImage: "arrow.down")
+                                .font(.caption.weight(.semibold))
+                        }
+                        .buttonStyle(.borderedProminent)
+                        .padding(12)
+                    }
+                }
+                .background(Color(.systemGroupedBackground))
             }
-            .padding(.horizontal)
-            .padding(.top, 14)
-            .padding(.bottom, 10)
         }
-        .background(Color(.systemGroupedBackground))
+    }
+
+    private func scrollToLatest(using proxy: ScrollViewProxy, animated: Bool) {
+        DispatchQueue.main.async {
+            if animated {
+                withAnimation(.easeOut(duration: 0.2)) {
+                    proxy.scrollTo(bottomAnchorID, anchor: .bottom)
+                }
+            } else {
+                proxy.scrollTo(bottomAnchorID, anchor: .bottom)
+            }
+            initialScrollCompleted = true
+            isAtBottom = true
+            followsLatest = true
+        }
+    }
+}
+
+private struct TimelineBottomOffsetPreferenceKey: PreferenceKey {
+    static var defaultValue: CGFloat = 0
+
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
+        value = nextValue()
     }
 }
 

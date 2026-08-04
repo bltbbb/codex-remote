@@ -255,6 +255,7 @@ private struct WorkspacePickerView: View {
 
 private struct ConnectionStatusView: View {
     @ObservedObject var store: RemoteAppStore
+    @State private var showingConnectionDetails = false
 
     var body: some View {
         HStack(spacing: 10) {
@@ -268,10 +269,21 @@ private struct ConnectionStatusView: View {
                 Text(store.state.connection.message)
                     .font(.caption)
                     .foregroundColor(.secondary)
-                    .lineLimit(1)
+                    .lineLimit(2)
+                    .fixedSize(horizontal: false, vertical: true)
             }
 
             Spacer(minLength: 8)
+
+            if shouldShowDetailsButton {
+                Button {
+                    showingConnectionDetails = true
+                } label: {
+                    Image(systemName: "info.circle")
+                }
+                .buttonStyle(.borderless)
+                .accessibilityLabel("查看完整连接信息")
+            }
 
             Button {
                 Task {
@@ -289,6 +301,15 @@ private struct ConnectionStatusView: View {
             .disabled(store.connectionPhase == .connecting)
         }
         .padding(.vertical, 4)
+        .alert("连接详情", isPresented: $showingConnectionDetails) {
+            Button("确定", role: .cancel) {}
+        } message: {
+            Text(store.state.connection.message)
+        }
+    }
+
+    private var shouldShowDetailsButton: Bool {
+        store.connectionPhase != .online || store.state.connection.message.count > 36
     }
 
     private var statusTitle: String {
